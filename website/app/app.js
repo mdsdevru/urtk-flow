@@ -1,6 +1,44 @@
 const STORAGE_SETTINGS = "urtk_flow_pwa_settings_v1";
 const STORAGE_CACHE = "urtk_flow_pwa_cache_v1";
 
+// Fix iOS WebKit standalone black-translucent bug where window.innerHeight / 100dvh / bottom:0
+// stops ~54px short of the physical screen (leaving an empty chin at the bottom).
+function syncViewportHeight() {
+  const docEl = document.documentElement;
+  const isIosStandalone = window.navigator.standalone === true;
+  const isStandalone =
+    isIosStandalone || window.matchMedia("(display-mode: standalone)").matches;
+
+  const innerH = window.innerHeight;
+  let appH = innerH;
+
+  if (isStandalone && window.screen) {
+    const minSide = Math.min(window.screen.width, window.screen.height);
+    const maxSide = Math.max(window.screen.width, window.screen.height);
+    const isLandscape = window.innerWidth > window.innerHeight;
+    const screenH = isLandscape ? minSide : maxSide;
+    const diff = screenH - innerH;
+
+    if (isIosStandalone && minSide <= 500) {
+      appH = screenH;
+    } else if (diff > 0 && diff <= 110) {
+      appH = screenH;
+    }
+  }
+
+  docEl.style.setProperty("--app-height", `${appH}px`);
+}
+
+syncViewportHeight();
+window.addEventListener("resize", () => {
+  const active = document.activeElement;
+  if (active && /^(INPUT|TEXTAREA)$/.test(active.tagName)) return;
+  syncViewportHeight();
+});
+window.addEventListener("orientationchange", () => {
+  setTimeout(syncViewportHeight, 120);
+});
+
 const state = {
   settings: loadSettings(),
   data: loadCache(),
@@ -916,7 +954,10 @@ document.getElementById("group-search")?.addEventListener("input", (e) => {
 // Register Service Worker for offline PWA support
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" }).catch(() => {});
+    navigator.serviceWorker
+      .register("/app/sw.js", { scope: "/app/", updateViaCache: "none" })
+      .then((reg) => reg.update().catch(() => {}))
+      .catch(() => {});
   });
 }
 
