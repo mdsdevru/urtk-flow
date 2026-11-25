@@ -1,9 +1,9 @@
-const CACHE_NAME = "urtk-flow-pwa-v11";
+const CACHE_NAME = "urtk-flow-pwa-v12";
 const SHELL_ASSETS = [
   "/app/",
   "/app/index.html",
-  "/app/app.css?v=11",
-  "/app/app.js?v=11",
+  "/app/app.css?v=12",
+  "/app/app.js?v=12",
   "/app/manifest.webmanifest",
   "/app/icons/icon-180.png",
   "/app/icons/icon-192.png",

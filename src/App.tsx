@@ -139,6 +139,9 @@ function MainApp() {
 
   const [consultFilter, setConsultFilter] = useState<"mine" | "active" | "all">("active");
   const [teacherQuery, setTeacherQuery] = useState("");
+  const [pendingFocusTeacher, setPendingFocusTeacher] = useState<string | null>(null);
+  const [flashingTeacher, setFlashingTeacher] = useState<string | null>(null);
+  const [swipeConsultOnce, setSwipeConsultOnce] = useState(false);
   const [profileTeacherQuery, setProfileTeacherQuery] = useState("");
   const [groupQuery, setGroupQuery] = useState("");
   const [extraGroupQuery, setExtraGroupQuery] = useState("");
@@ -373,11 +376,58 @@ function MainApp() {
   };
 
   const jumpToTeacherConsultation = (teacherShortName: string) => {
-    const surname = teacherShortName.trim().split(/\s+/)[0] || teacherShortName;
-    setTeacherQuery(surname);
-    setConsultFilter("all");
+    const targetConsult = findConsultationForTeacher(teacherShortName);
+    const targetName = targetConsult?.teacherName ?? teacherShortName;
+    const isInMine = Boolean(
+      targetConsult &&
+        (targetConsult.isMyTeacher ||
+          settings.pinnedTeachers.some((pt) => teacherNamesMatch(pt, targetConsult.teacherName)))
+    );
+
+    setTeacherQuery("");
+    setConsultFilter(isInMine ? "mine" : "active");
+    setFlashingTeacher(null);
+    setSwipeConsultOnce(true);
+    setPendingFocusTeacher(targetName);
     setTab("consultations");
   };
+
+  useEffect(() => {
+    if (tab !== "consultations" || !pendingFocusTeacher) return;
+    const target = pendingFocusTeacher;
+    let flashTimer: ReturnType<typeof setTimeout> | undefined;
+    let clearTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const scrollTimer = setTimeout(() => {
+      const cards = document.querySelectorAll<HTMLElement>("[data-consult-teacher]");
+      let matchedEl: HTMLElement | null = null;
+      cards.forEach((el) => {
+        if (!matchedEl && teacherNamesMatch(el.dataset.consultTeacher || "", target)) {
+          matchedEl = el;
+        }
+      });
+      if (matchedEl) {
+        (matchedEl as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+        const matchedName = (matchedEl as HTMLElement).dataset.consultTeacher || target;
+        flashTimer = setTimeout(() => {
+          setFlashingTeacher(matchedName);
+          clearTimer = setTimeout(() => {
+            setFlashingTeacher(null);
+            setSwipeConsultOnce(false);
+          }, 1250);
+        }, 360);
+      } else {
+        setSwipeConsultOnce(false);
+      }
+      setPendingFocusTeacher(null);
+    }, 180);
+
+    return () => {
+      clearTimeout(scrollTimer);
+      if (flashTimer) clearTimeout(flashTimer);
+      if (clearTimer) clearTimeout(clearTimer);
+    };
+  }, [tab, pendingFocusTeacher, consultFilter]);
 
   const isTeacherMode = settings.role === "teacher";
   const activeTargetLabel = isTeacherMode ? settings.selectedTeacher : settings.selectedGroup;
@@ -1292,7 +1342,7 @@ function MainApp() {
 
           {/* TAB 2: CONSULTATIONS */}
           {tab === "consultations" && (
-            <div className="space-y-4 pb-2">
+            <div className={`space-y-4 pb-2 ${swipeConsultOnce ? "lg-tab-swipe-right" : ""}`}>
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <h1 className="text-[22px] font-semibold tracking-[-0.02em]">
@@ -1362,6 +1412,7 @@ function MainApp() {
                     <ConsultationCard
                       key={item.teacherName}
                       item={item}
+                      flashing={flashingTeacher === item.teacherName}
                       onTogglePin={() => togglePinTeacher(item.teacherName)}
                     />
                   ))}
@@ -2200,15 +2251,22 @@ function MainApp() {
 
 function ConsultationCard({
   item,
+  flashing,
   onTogglePin,
 }: {
   item: TeacherConsultations;
+  flashing?: boolean;
   onTogglePin: () => void;
 }) {
   return (
     <div
-      className="lg-card lg-card-interactive p-4 space-y-3"
-      style={item.isPinned ? { borderColor: "rgba(255, 159, 10, 0.36)" } : undefined}
+      data-consult-teacher={item.teacherName}
+      className={`lg-card lg-card-interactive p-4 space-y-3 ${
+        flashing ? "lg-consult-flash-once" : ""
+      }`}
+      style={
+        !flashing && item.isPinned ? { borderColor: "rgba(255, 159, 10, 0.36)" } : undefined
+      }
     >
       <div className="flex items-start justify-between gap-2.5">
         <div className="min-w-0">

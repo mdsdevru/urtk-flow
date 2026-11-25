@@ -388,16 +388,35 @@ function updateBellBar() {
   }
 }
 
-function setTab(tabId) {
+const TAB_ORDER = ["schedule", "consultations", "materials", "settings"];
+
+function setTab(tabId, opts = {}) {
+  const prevIdx = TAB_ORDER.indexOf(state.tab);
+  const nextIdx = TAB_ORDER.indexOf(tabId);
+  const dirClass =
+    prevIdx !== -1 && nextIdx !== -1 && prevIdx !== nextIdx
+      ? nextIdx > prevIdx
+        ? "slide-from-right"
+        : "slide-from-left"
+      : "";
+
   state.tab = tabId;
   document.querySelectorAll(".tab-view").forEach((v) => {
-    v.classList.toggle("active", v.getAttribute("data-view") === tabId);
+    const isActive = v.getAttribute("data-view") === tabId;
+    v.classList.remove("slide-from-right", "slide-from-left");
+    v.classList.toggle("active", isActive);
+    if (isActive && dirClass) {
+      void v.offsetWidth;
+      v.classList.add(dirClass);
+    }
   });
   document.querySelectorAll(".tab-item").forEach((b) => {
     b.classList.toggle("active", b.getAttribute("data-tab") === tabId);
   });
-  const mainEl = document.getElementById("ios-main");
-  if (mainEl) mainEl.scrollTop = 0;
+  if (!opts.preserveScroll) {
+    const mainEl = document.getElementById("ios-main");
+    if (mainEl) mainEl.scrollTop = 0;
+  }
 }
 
 function shortWeekday(weekday) {
@@ -609,7 +628,7 @@ function renderConsultations() {
             .join("")}</div>`
         : "";
 
-      return `<article class="glass-card consult-card ${item.isPinned ? "is-pinned" : ""}">
+      return `<article class="glass-card consult-card ${item.isPinned ? "is-pinned" : ""}" data-consult-teacher="${escapeHtml(item.teacherName)}">
         <div class="cc-head">
           <div>
             <div class="cc-name">${escapeHtml(item.teacherName)}</div>
@@ -1162,16 +1181,46 @@ function renderSchedule() {
     listEl.querySelectorAll("[data-jump-teacher]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const t = String(btn.getAttribute("data-jump-teacher") || "").trim();
-        const surname = t.split(/\s+/)[0] || t;
-        state.teacherQuery = surname;
-        state.consultFilter = "all";
+        const consult = findConsultationForTeacher(t);
+        const targetName = consult ? consult.teacherName : t;
+        const isInMine = Boolean(
+          consult && (consult.isMyTeacher || isPinnedTeacher(consult.teacherName))
+        );
+
+        state.teacherQuery = "";
+        state.consultFilter = isInMine ? "mine" : "active";
         const searchInput = document.getElementById("teacher-search");
-        if (searchInput) searchInput.value = surname;
+        if (searchInput) searchInput.value = "";
         document.querySelectorAll("[data-cfilter]").forEach((b) => {
-          b.classList.toggle("active", b.getAttribute("data-cfilter") === "all");
+          b.classList.toggle("active", b.getAttribute("data-cfilter") === state.consultFilter);
         });
         renderConsultations();
         setTab("consultations");
+
+        clearTimeout(window._urtkJumpScrollTimer);
+        clearTimeout(window._urtkJumpFlashTimer);
+        window._urtkJumpScrollTimer = setTimeout(() => {
+          const cards = document.querySelectorAll("#consult-list [data-consult-teacher]");
+          let targetCard = null;
+          cards.forEach((el) => {
+            if (!targetCard && teacherNamesMatch(el.getAttribute("data-consult-teacher") || "", targetName)) {
+              targetCard = el;
+            }
+          });
+          if (targetCard) {
+            targetCard.scrollIntoView({ behavior: "smooth", block: "center" });
+            window._urtkJumpFlashTimer = setTimeout(() => {
+              targetCard.classList.remove("consult-flash-once");
+              void targetCard.offsetWidth;
+              targetCard.classList.add("consult-flash-once");
+              targetCard.addEventListener(
+                "animationend",
+                () => targetCard.classList.remove("consult-flash-once"),
+                { once: true }
+              );
+            }, 360);
+          }
+        }, 200);
       });
     });
   }

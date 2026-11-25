@@ -358,6 +358,60 @@ a {
   display: flex;
 }
 
+@keyframes tabSlideFromRight {
+  0% {
+    opacity: 0;
+    transform: translate3d(34px, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes tabSlideFromLeft {
+  0% {
+    opacity: 0;
+    transform: translate3d(-34px, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.tab-view.slide-from-right {
+  animation: tabSlideFromRight 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tab-view.slide-from-left {
+  animation: tabSlideFromLeft 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes consultFlashOnce {
+  0% {
+    border-color: var(--border);
+    box-shadow: var(--shadow);
+    transform: scale(1);
+  }
+  30% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2.5px rgba(10, 132, 255, 0.6),
+      0 0 26px rgba(10, 132, 255, 0.32),
+      inset 0 0 0 1px rgba(10, 132, 255, 0.25);
+    transform: scale(1.015);
+  }
+  100% {
+    border-color: var(--border);
+    box-shadow: var(--shadow);
+    transform: scale(1);
+  }
+}
+
+.consult-card.consult-flash-once {
+  animation: consultFlashOnce 1.15s cubic-bezier(0.22, 1, 0.36, 1) 1;
+}
+
 .page-title {
   margin: 0;
   font-size: 24px;

@@ -1,10 +1,10 @@
 {
-    "version":  "1.4.0",
+    "version":  "1.4.1",
     "publishedAt":  "2026-11-25",
-    "notes":  "Режим «Преподаватель» (92 преподавателя УРТК с отображением групп на парах), раздел «Доп. группы» (до 5 групп друзей) и экран «Сравнение и окна» для поиска общих перерывов.",
-    "downloadUrl":  "https://flow.mdsdev.ru/downloads/URTK-Flow-Setup-1.4.0.exe",
-    "sha256":  "899bde0b28ec0d5f48887a142aecd6284f3c88e16a70cb4a0ed927f896e81d8c",
-    "sizeBytes":  3752394,
-    "signature":  "e9b73a7f63791e9c2c4558fc1bb518b276128f1b85d7d1e21dd4c0984c9085e3f95b7a017c6363e8163078097f55ae563fc4c3f9f298aec7e04a97db4f588402",
-    "signatureV2":  "0f561855000794be120f822301b8e0e77cf3e20862cb22b25e83545c24c38b31c47ff74ee8e06a3464485e95a7ebb43862fe3a3453bb8aa3c8a59f4af4c40d0b"
+    "notes":  "Улучшен переход к консультации из расписания: плавный свайп раздела на «Мои» с пустой строкой поиска, плавная прокрутка до преподавателя и единичная подсветка карточки.",
+    "downloadUrl":  "https://flow.mdsdev.ru/downloads/URTK-Flow-Setup-1.4.1.exe",
+    "sha256":  "68ec69be7efcb94ed7a0b26d3d7123aee6bcd5a40992c6bc476cfa75a013a693",
+    "sizeBytes":  3752854,
+    "signature":  "a8420ade1e4394cbff0ffbbfafb836d887197018d30b18627e6699aa7d9ff560847c2c49924cf3064081589d7bd972135371b5231218569e1b2891a4c1b5f203",
+    "signatureV2":  "8c5af9fe614b182c49873fbbe2af71a5bea01fdd795d3ec6af98a261ccd4995ab6ca63fd39fc981548b34f9509b0e6adb611637041b7545c1e7e8aedb8f25808"
 }

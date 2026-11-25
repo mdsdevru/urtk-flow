@@ -1,6 +1,6 @@
 [package]
 name = "urtk-flow"
-version = "1.4.0"
+version = "1.4.1"
 description = "URTK Flow — Расписание, консультации и виджеты рабочего стола для УРТК им. А.С. Попова"
 authors = ["URTK Student"]
 edition = "2021"
