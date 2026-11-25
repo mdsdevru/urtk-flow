@@ -21,19 +21,21 @@ try {
         exit(0);
     }
 
-    // Group active subscribers by groupId
-    $byGroup = [];
+    // Group active subscribers by role + targetId (student group or teacher)
+    $byTarget = [];
     foreach ($subs as $subId => $sub) {
-        $gid = (string)($sub['groupId'] ?? '');
-        $gName = (string)($sub['group'] ?? '');
-        if ($gid === '' || $gName === '') continue;
-        if (!isset($byGroup[$gid])) {
-            $byGroup[$gid] = ['name' => $gName, 'subs' => []];
+        $role = ((string)($sub['role'] ?? 'student')) === 'teacher' ? 'teacher' : 'student';
+        $tid = (string)($sub['groupId'] ?? '');
+        $tName = (string)($sub['group'] ?? '');
+        if ($tid === '' || $tName === '') continue;
+        $key = $role . ':' . $tid;
+        if (!isset($byTarget[$key])) {
+            $byTarget[$key] = ['role' => $role, 'id' => $tid, 'name' => $tName, 'subs' => []];
         }
-        $byGroup[$gid]['subs'][$subId] = $sub;
+        $byTarget[$key]['subs'][$subId] = $sub;
     }
 
-    if (empty($byGroup)) {
+    if (empty($byTarget)) {
         exit(0);
     }
 
@@ -41,13 +43,15 @@ try {
     $goneIds = [];
     $sentCount = 0;
 
-    foreach ($byGroup as $gid => $bucket) {
-        [$freshSched] = fetch_group_schedule((string)$gid);
+    foreach ($byTarget as $key => $bucket) {
+        [$freshSched] = $bucket['role'] === 'teacher'
+            ? fetch_teacher_schedule($bucket['id'])
+            : fetch_group_schedule($bucket['id']);
         if (empty($freshSched)) {
             continue;
         }
 
-        $snapFile = cache_dir() . '/sched_snap_' . hash('sha256', (string)$gid) . '.json';
+        $snapFile = cache_dir() . '/sched_snap_' . hash('sha256', $key) . '.json';
         $prevSched = null;
         if (is_file($snapFile) && !is_link($snapFile)) {
             $raw = @file_get_contents($snapFile);
@@ -85,7 +89,7 @@ try {
             'title' => 'Изменилось расписание · ' . $bucket['name'],
             'body' => $summary,
             'url' => '/app/',
-            'tag' => 'urtk-sched-' . $gid,
+            'tag' => 'urtk-sched-' . $bucket['id'],
         ];
 
         foreach ($bucket['subs'] as $subId => $sub) {
@@ -109,7 +113,7 @@ try {
         });
     }
 
-    echo sprintf("[%s] groups=%d sent=%d pruned=%d\n", date('Y-m-d H:i:s'), count($byGroup), $sentCount, count($goneIds));
+    echo sprintf("[%s] targets=%d sent=%d pruned=%d\n", date('Y-m-d H:i:s'), count($byTarget), $sentCount, count($goneIds));
 } finally {
     @flock($lockFp, LOCK_UN);
     fclose($lockFp);

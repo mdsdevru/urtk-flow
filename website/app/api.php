@@ -306,7 +306,68 @@ function parse_navigator_drive_urls(string $html): array {
     return $map;
 }
 
-function fetch_groups(): array {
+function extract_teachers_from_html(string $unescaped): array {
+    $pos = strpos($unescaped, '"teachers":[');
+    if ($pos === false) {
+        return [];
+    }
+    $rest = substr($unescaped, $pos + strlen('"teachers":'));
+    $len = strlen($rest);
+    $depth = 0;
+    $inStr = false;
+    $escaped = false;
+    $end = null;
+    for ($i = 0; $i < $len; $i++) {
+        $ch = $rest[$i];
+        if ($escaped) {
+            $escaped = false;
+            continue;
+        }
+        if ($ch === '\\' && $inStr) {
+            $escaped = true;
+            continue;
+        }
+        if ($ch === '"') {
+            $inStr = !$inStr;
+            continue;
+        }
+        if (!$inStr) {
+            if ($ch === '[') {
+                $depth++;
+            } elseif ($ch === ']') {
+                $depth--;
+                if ($depth === 0) {
+                    $end = $i + 1;
+                    break;
+                }
+            }
+        }
+    }
+    if ($end === null) {
+        return [];
+    }
+    $decoded = json_decode(substr($rest, 0, $end), true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+    $seen = [];
+    $teachers = [];
+    foreach ($decoded as $item) {
+        if (!is_array($item)) continue;
+        $id = trim((string)($item['id'] ?? ''));
+        $name = clean_cell_str((string)($item['name'] ?? ''), 100);
+        if ($id === '' || $name === '' || strlen($id) > 64 || !preg_match('/^[A-Za-z0-9_-]+$/', $id)) {
+            continue;
+        }
+        if (isset($seen[$id])) continue;
+        $seen[$id] = true;
+        $teachers[] = ['id' => $id, 'name' => $name];
+    }
+    usort($teachers, static fn($a, $b) => strcmp($a['name'], $b['name']));
+    return $teachers;
+}
+
+function fetch_directory(): array {
     $navMeta = [];
     $navCsv = http_get(NAVIGATOR_CSV, 3600);
     if ($navCsv !== null) {
@@ -330,10 +391,12 @@ function fetch_groups(): array {
     }
 
     $groups = [];
+    $teachers = [];
     $seen = [];
     $html = http_get(AKADEMIKS_GROUPS_URL, 3600);
     if ($html !== null) {
         $unescaped = str_replace('\\"', '"', $html);
+        $teachers = extract_teachers_from_html($unescaped);
         if (preg_match_all('/"id":"([^"\/]{2,30})","title":"([^"]{2,20})"/u', $unescaped, $matches, PREG_SET_ORDER)) {
             foreach ($matches as $m) {
                 $id = $m[1];
@@ -358,28 +421,39 @@ function fetch_groups(): array {
     usort($groups, static function ($a, $b) {
         return [$a['course'], $a['name']] <=> [$b['course'], $b['name']];
     });
+    return [$groups, $teachers];
+}
+
+function fetch_groups(): array {
+    [$groups] = fetch_directory();
     return $groups;
 }
 
-function fetch_week_schedule(string $groupId, DateTimeImmutable $mondayEkb): array {
+function fetch_week_schedule(?string $groupId, ?string $teacherId, DateTimeImmutable $mondayEkb): array {
     $utcTz = new DateTimeZone('UTC');
     $ekbTz = new DateTimeZone('Asia/Yekaterinburg');
     $weekStartIso = $mondayEkb->setTimezone($utcTz)->format('Y-m-d\TH:i:s.000\Z');
+
+    $metaValues = [];
+    if ($groupId === null) {
+        $metaValues['groupId'] = ['undefined'];
+    }
+    if ($teacherId === null) {
+        $metaValues['teacherId'] = ['undefined'];
+    }
+    $metaValues['classroomId'] = ['undefined'];
+    $metaValues['weekStart'] = ['Date'];
 
     $input = json_encode((object)[
         '0' => [
             'json' => [
                 'groupId' => $groupId,
-                'teacherId' => null,
+                'teacherId' => $teacherId,
                 'classroomId' => null,
                 'weekStart' => $weekStartIso,
             ],
             'meta' => [
-                'values' => [
-                    'teacherId' => ['undefined'],
-                    'classroomId' => ['undefined'],
-                    'weekStart' => ['Date'],
-                ],
+                'values' => $metaValues,
                 'v' => 1,
             ],
         ],
@@ -416,6 +490,7 @@ function fetch_week_schedule(string $groupId, DateTimeImmutable $mondayEkb): arr
             if ($teacher !== '') {
                 $teachers[$teacher] = true;
             }
+            $groupName = trim((string)($l['Group']['title'] ?? ''));
             $tStart = '';
             $tEnd = '';
             try {
@@ -430,9 +505,10 @@ function fetch_week_schedule(string $groupId, DateTimeImmutable $mondayEkb): arr
                 'subject' => trim((string)($l['title'] ?? '')),
                 'teacher' => $teacher,
                 'room' => trim((string)($l['Classroom']['name'] ?? '')),
+                'groupName' => $groupName !== '' ? $groupName : null,
             ];
         }
-        usort($lessons, static fn($a, $b) => $a['pairNumber'] <=> $b['pairNumber']);
+        usort($lessons, static fn($a, $b) => [$a['pairNumber'], (string)($a['groupName'] ?? '')] <=> [$b['pairNumber'], (string)($b['groupName'] ?? '')]);
         if (!empty($lessons)) {
             $days[] = [
                 'date' => $dateFmt,
@@ -447,8 +523,10 @@ function fetch_week_schedule(string $groupId, DateTimeImmutable $mondayEkb): arr
     return [$days, $tList];
 }
 
-function fetch_group_schedule(string $groupId): array {
-    if ($groupId === '') return [[], []];
+function fetch_schedule_for_target(?string $groupId, ?string $teacherId): array {
+    if (($groupId === null || $groupId === '') && ($teacherId === null || $teacherId === '')) {
+        return [[], []];
+    }
     $ekbTz = new DateTimeZone('Asia/Yekaterinburg');
     $now = new DateTimeImmutable('now', $ekbTz);
     $isoDay = (int)$now->format('N'); // 1..7
@@ -459,13 +537,21 @@ function fetch_group_schedule(string $groupId): array {
     $primaryMon = $preferNext ? $nextMonday : $currentMonday;
     $secondaryMon = $preferNext ? $currentMonday : $nextMonday;
 
-    [$primaryDays, $primaryTeachers] = fetch_week_schedule($groupId, $primaryMon);
-    [$secondaryDays, $secondaryTeachers] = fetch_week_schedule($groupId, $secondaryMon);
+    [$primaryDays, $primaryTeachers] = fetch_week_schedule($groupId, $teacherId, $primaryMon);
+    [$secondaryDays, $secondaryTeachers] = fetch_week_schedule($groupId, $teacherId, $secondaryMon);
 
     $allTeachers = array_values(array_unique(array_merge($primaryTeachers, $secondaryTeachers)));
     sort($allTeachers);
     $days = !empty($primaryDays) ? $primaryDays : $secondaryDays;
     return [$days, $allTeachers];
+}
+
+function fetch_group_schedule(string $groupId): array {
+    return fetch_schedule_for_target($groupId !== '' ? $groupId : null, null);
+}
+
+function fetch_teacher_schedule(string $teacherId): array {
+    return fetch_schedule_for_target(null, $teacherId !== '' ? $teacherId : null);
 }
 
 function parse_ru_date(string $raw, DateTimeImmutable $ref): ?DateTimeImmutable {
@@ -683,22 +769,75 @@ if (!defined('URTK_API_LIB')) {
         if (mb_strlen($selectedGroup, 'UTF-8') > 40) {
             $selectedGroup = '';
         }
-        $groups = fetch_groups();
 
-        // Strict allowlist: only query Akademiks for real groups from the official URTK list
-        $groupId = '';
-        $matchedGroup = '';
-        if ($selectedGroup !== '') {
-            foreach ($groups as $g) {
-                if (mb_strtolower($g['name'], 'UTF-8') === mb_strtolower($selectedGroup, 'UTF-8') || $g['id'] === $selectedGroup) {
-                    $groupId = $g['id'];
-                    $matchedGroup = $g['name'];
+        $rawTeacher = is_string($_GET['teacher'] ?? null) ? $_GET['teacher'] : '';
+        $selectedTeacher = trim(preg_replace('/[\x00-\x1F\x7F]/u', '', $rawTeacher) ?? '');
+        if (mb_strlen($selectedTeacher, 'UTF-8') > 100) {
+            $selectedTeacher = '';
+        }
+
+        $rawExtras = is_string($_GET['extras'] ?? null) ? $_GET['extras'] : '';
+        $rawExtras = trim(preg_replace('/[\x00-\x1F\x7F]/u', '', $rawExtras) ?? '');
+
+        [$groups, $teachers] = fetch_directory();
+
+        // Strict allowlists for teacher mode vs student group mode
+        $teacherId = '';
+        $matchedTeacher = '';
+        if ($selectedTeacher !== '') {
+            foreach ($teachers as $t) {
+                if (
+                    $t['id'] === $selectedTeacher ||
+                    mb_strtolower($t['name'], 'UTF-8') === mb_strtolower($selectedTeacher, 'UTF-8') ||
+                    teacher_names_match($t['name'], $selectedTeacher)
+                ) {
+                    $teacherId = $t['id'];
+                    $matchedTeacher = $t['name'];
                     break;
                 }
             }
         }
 
-        [$schedule, $groupTeachers] = $groupId !== '' ? fetch_group_schedule($groupId) : [[], []];
+        $groupId = '';
+        $matchedGroup = '';
+        $extraSchedules = [];
+
+        if ($teacherId !== '') {
+            [$schedule] = fetch_teacher_schedule($teacherId);
+            $groupTeachers = [$matchedTeacher];
+        } else {
+            if ($selectedGroup !== '') {
+                foreach ($groups as $g) {
+                    if (mb_strtolower($g['name'], 'UTF-8') === mb_strtolower($selectedGroup, 'UTF-8') || $g['id'] === $selectedGroup) {
+                        $groupId = $g['id'];
+                        $matchedGroup = $g['name'];
+                        break;
+                    }
+                }
+            }
+
+            [$schedule, $groupTeachers] = $groupId !== '' ? fetch_group_schedule($groupId) : [[], []];
+
+            if ($rawExtras !== '' && mb_strlen($rawExtras, 'UTF-8') <= 240) {
+                $parts = array_slice(array_filter(array_map('trim', explode(',', $rawExtras))), 0, 5);
+                $seenExtra = [];
+                foreach ($parts as $extraName) {
+                    foreach ($groups as $g) {
+                        if (
+                            (mb_strtolower($g['name'], 'UTF-8') === mb_strtolower($extraName, 'UTF-8') || $g['id'] === $extraName) &&
+                            $g['id'] !== $groupId &&
+                            !isset($seenExtra[$g['id']])
+                        ) {
+                            $seenExtra[$g['id']] = true;
+                            [$eSched] = fetch_group_schedule($g['id']);
+                            $extraSchedules[$g['name']] = $eSched;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         [$weekRange, $consultations] = fetch_consultations($groupTeachers);
 
         $bells = bells_data();
@@ -706,9 +845,12 @@ if (!defined('URTK_API_LIB')) {
             'ok' => true,
             'lastSyncedAt' => date('H:i'),
             'selectedGroup' => $matchedGroup,
+            'selectedTeacher' => $matchedTeacher,
             'consultationWeekRange' => $weekRange,
             'groups' => $groups,
+            'teachers' => $teachers,
             'schedule' => $schedule,
+            'extraSchedules' => (object)$extraSchedules,
             'groupTeachers' => $groupTeachers,
             'consultations' => $consultations,
             'bellsMonday' => $bells['monday'],

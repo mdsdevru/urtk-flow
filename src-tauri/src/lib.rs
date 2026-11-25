@@ -81,6 +81,22 @@ fn find_group_id(groups: &[models::GroupInfo], selected_group: &str) -> String {
         .unwrap_or_default()
 }
 
+fn find_teacher_id(teachers: &[models::TeacherInfo], selected_teacher: &str) -> String {
+    let clean = selected_teacher.trim();
+    if clean.is_empty() || clean.len() > 100 {
+        return String::new();
+    }
+    teachers
+        .iter()
+        .find(|t| {
+            t.id == clean
+                || t.name.eq_ignore_ascii_case(clean)
+                || parsers::teacher_names_match(&t.name, clean)
+        })
+        .map(|t| t.id.clone())
+        .unwrap_or_default()
+}
+
 fn sanitize_morning_time(raw: &str) -> String {
     let trimmed = raw.trim();
     let parts: Vec<&str> = trimmed.split(':').collect();
@@ -98,7 +114,23 @@ fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.theme != "dark" && settings.theme != "light" {
         settings.theme = "dark".to_string();
     }
+    if settings.role != "student" && settings.role != "teacher" {
+        settings.role = "student".to_string();
+    }
     settings.selected_group = settings.selected_group.trim().chars().take(40).collect();
+    settings.selected_teacher = settings.selected_teacher.trim().chars().take(100).collect();
+    let mut seen_extra: HashSet<String> = HashSet::new();
+    let primary_lower = settings.selected_group.to_lowercase();
+    settings.extra_groups = settings
+        .extra_groups
+        .into_iter()
+        .map(|s| s.trim().chars().take(40).collect::<String>())
+        .filter(|s| {
+            let low = s.to_lowercase();
+            !low.is_empty() && low != primary_lower && seen_extra.insert(low)
+        })
+        .take(5)
+        .collect();
     settings.pinned_teachers = settings
         .pinned_teachers
         .into_iter()
@@ -127,8 +159,13 @@ fn day_schedule_fingerprint(day: &DaySchedule) -> String {
         .iter()
         .map(|l| {
             format!(
-                "{}:{}-{}:{}:{}",
-                l.pair_number, l.time_start, l.time_end, l.subject, l.room
+                "{}:{}-{}:{}:{}:{}",
+                l.pair_number,
+                l.time_start,
+                l.time_end,
+                l.subject,
+                l.room,
+                l.group_name.as_deref().unwrap_or("")
             )
         })
         .collect::<Vec<_>>()
@@ -193,15 +230,51 @@ async fn run_sync_cycle(
             }
         }
 
-        let groups = parsers::fetch_groups().await?;
-        let group_id = find_group_id(&groups, &settings.selected_group);
+        let (groups, teachers) = parsers::fetch_directory().await?;
+        let is_teacher_mode = settings.role == "teacher";
 
-        let (schedule, group_teachers) = if !group_id.is_empty() {
-            parsers::fetch_group_schedule(&group_id)
-                .await
-                .unwrap_or_default()
+        let (schedule, group_teachers, extra_schedules) = if is_teacher_mode {
+            let teacher_id = find_teacher_id(&teachers, &settings.selected_teacher);
+            let (sched, _) = if !teacher_id.is_empty() {
+                parsers::fetch_teacher_schedule(&teacher_id)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                (Vec::new(), Vec::new())
+            };
+            let self_teacher = if settings.selected_teacher.is_empty() {
+                Vec::new()
+            } else {
+                vec![settings.selected_teacher.clone()]
+            };
+            (sched, self_teacher, HashMap::new())
         } else {
-            (Vec::new(), Vec::new())
+            let group_id = find_group_id(&groups, &settings.selected_group);
+            let (sched, g_teachers) = if !group_id.is_empty() {
+                parsers::fetch_group_schedule(&group_id)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                (Vec::new(), Vec::new())
+            };
+
+            let mut extras: HashMap<String, Vec<DaySchedule>> = HashMap::new();
+            if settings.multi_groups_enabled && !settings.extra_groups.is_empty() {
+                for extra_name in settings.extra_groups.iter().take(5) {
+                    let eid = find_group_id(&groups, extra_name);
+                    if !eid.is_empty() && eid != group_id {
+                        if let Ok((e_days, _)) = parsers::fetch_group_schedule(&eid).await {
+                            let canonical_name = groups
+                                .iter()
+                                .find(|g| g.id == eid)
+                                .map(|g| g.name.clone())
+                                .unwrap_or_else(|| extra_name.clone());
+                            extras.insert(canonical_name, e_days);
+                        }
+                    }
+                }
+            }
+            (sched, g_teachers, extras)
         };
 
         let (week_range, consultations) =
@@ -211,13 +284,22 @@ async fn run_sync_cycle(
         let mut schedule_changes = Vec::new();
 
         if let Some(prev) = &prev_cache {
-            let same_group = !settings.selected_group.is_empty()
-                && prev
-                    .settings
-                    .selected_group
-                    .eq_ignore_ascii_case(&settings.selected_group);
+            let same_target = prev.settings.role == settings.role
+                && if is_teacher_mode {
+                    !settings.selected_teacher.is_empty()
+                        && prev
+                            .settings
+                            .selected_teacher
+                            .eq_ignore_ascii_case(&settings.selected_teacher)
+                } else {
+                    !settings.selected_group.is_empty()
+                        && prev
+                            .settings
+                            .selected_group
+                            .eq_ignore_ascii_case(&settings.selected_group)
+                };
 
-            if same_group {
+            if same_target {
                 schedule_changes = detect_schedule_changes(&prev.schedule, &schedule);
             }
 
@@ -264,9 +346,14 @@ async fn run_sync_cycle(
             }
 
             if !schedule_changes.is_empty() && settings.notifications.on_schedule_change {
+                let target_label = if is_teacher_mode {
+                    format!("преподавателя {}", settings.selected_teacher)
+                } else {
+                    format!("группы {}", settings.selected_group)
+                };
                 let body = format!(
-                    "Обновлено расписание группы {}: {}",
-                    settings.selected_group,
+                    "Обновлено расписание {}: {}",
+                    target_label,
                     schedule_changes.join("; ")
                 );
                 let _ = app
@@ -282,7 +369,9 @@ async fn run_sync_cycle(
             last_synced_at: chrono::Local::now().format("%H:%M").to_string(),
             consultation_week_range: week_range,
             groups,
+            teachers,
             schedule,
+            extra_schedules,
             group_teachers,
             consultations,
             bells_monday: parsers::urtk_bells_monday(),
@@ -379,6 +468,12 @@ fn maybe_send_morning_summary(app: &AppHandle) {
         .map(|c| c.slots.iter().filter(|s| s.date.starts_with(&today_ru[..5])).count())
         .sum();
 
+    let has_target = if settings.role == "teacher" {
+        !settings.selected_teacher.is_empty()
+    } else {
+        !settings.selected_group.is_empty()
+    };
+
     let schedule_part = if let Some(first) = today_lessons.first() {
         format!(
             "Сегодня {} пар (с {} в ауд. {}).",
@@ -386,10 +481,10 @@ fn maybe_send_morning_summary(app: &AppHandle) {
             first.time_start,
             if first.room.is_empty() { "—" } else { &first.room }
         )
-    } else if !settings.selected_group.is_empty() {
+    } else if has_target {
         "На сегодня пар по расписанию нет.".to_string()
     } else {
-        "Выберите учебную группу для сводки по парам.".to_string()
+        "Выберите группу или преподавателя для сводки по парам.".to_string()
     };
 
     let consult_part = if today_consult_count > 0 {
@@ -487,7 +582,9 @@ fn get_cached_data(state: State<'_, AppState>) -> Result<SyncPayload, String> {
         last_synced_at: String::new(),
         consultation_week_range: String::new(),
         groups: Vec::new(),
+        teachers: Vec::new(),
         schedule: Vec::new(),
+        extra_schedules: HashMap::new(),
         group_teachers: Vec::new(),
         consultations: Vec::new(),
         bells_monday: parsers::urtk_bells_monday(),
@@ -537,7 +634,9 @@ async fn save_settings(
             last_synced_at: String::new(),
             consultation_week_range: String::new(),
             groups: Vec::new(),
+            teachers: Vec::new(),
             schedule: Vec::new(),
+            extra_schedules: HashMap::new(),
             group_teachers: Vec::new(),
             consultations: Vec::new(),
             bells_monday: parsers::urtk_bells_monday(),
@@ -878,6 +977,7 @@ mod security_tests {
                 teacher: "Биц Н.А.".into(),
                 room: "457".into(),
                 lesson_type: None,
+                group_name: None,
             }],
         }];
         let mut next = prev.clone();

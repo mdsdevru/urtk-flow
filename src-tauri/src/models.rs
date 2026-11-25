@@ -13,6 +13,13 @@ pub struct GroupInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TeacherInfo {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LessonItem {
     pub pair_number: u32,
     pub time_start: String,
@@ -21,6 +28,8 @@ pub struct LessonItem {
     pub teacher: String,
     pub room: String,
     pub lesson_type: Option<String>,
+    #[serde(default)]
+    pub group_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,7 +130,15 @@ pub const DEFAULT_UPDATE_ENDPOINT: &str = "https://update.flow.mdsdev.ru/latest.
 pub struct AppSettings {
     #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(default = "default_role")]
+    pub role: String,
     pub selected_group: String,
+    #[serde(default)]
+    pub selected_teacher: String,
+    #[serde(default)]
+    pub multi_groups_enabled: bool,
+    #[serde(default)]
+    pub extra_groups: Vec<String>,
     pub pinned_teachers: Vec<String>,
     pub hidden_teachers: Vec<String>,
     pub sync_interval_minutes: u32,
@@ -141,6 +158,10 @@ fn default_theme() -> String {
     "dark".to_string()
 }
 
+fn default_role() -> String {
+    "student".to_string()
+}
+
 fn default_true() -> bool {
     true
 }
@@ -153,7 +174,11 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: default_theme(),
+            role: default_role(),
             selected_group: String::new(),
+            selected_teacher: String::new(),
+            multi_groups_enabled: false,
+            extra_groups: Vec::new(),
             pinned_teachers: Vec::new(),
             hidden_teachers: Vec::new(),
             sync_interval_minutes: 30,
@@ -211,7 +236,11 @@ pub struct SyncPayload {
     pub last_synced_at: String,
     pub consultation_week_range: String,
     pub groups: Vec<GroupInfo>,
+    #[serde(default)]
+    pub teachers: Vec<TeacherInfo>,
     pub schedule: Vec<DaySchedule>,
+    #[serde(default)]
+    pub extra_schedules: std::collections::HashMap<String, Vec<DaySchedule>>,
     pub group_teachers: Vec<String>,
     pub consultations: Vec<TeacherConsultations>,
     pub bells_monday: Vec<BellSlot>,

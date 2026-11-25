@@ -74,15 +74,20 @@ export function WidgetView({
     );
   }, [data]);
 
+  const isTeacherMode = effectiveSettings?.role === "teacher";
+  const activeTargetName = isTeacherMode
+    ? effectiveSettings?.selectedTeacher ?? ""
+    : effectiveSettings?.selectedGroup ?? "";
+
   const bellStatus = useMemo(() => {
     return computeBellStatus(
       now,
       data?.schedule ?? [],
       data?.bellsMonday ?? [],
       data?.bellsRegular ?? [],
-      effectiveSettings?.selectedGroup ?? ""
+      activeTargetName
     );
-  }, [now, data?.schedule, data?.bellsMonday, data?.bellsRegular, effectiveSettings?.selectedGroup]);
+  }, [now, data?.schedule, data?.bellsMonday, data?.bellsRegular, activeTargetName]);
 
   const scheduleDays = data?.schedule ?? [];
   const nextDay = useMemo(() => {
@@ -131,7 +136,7 @@ export function WidgetView({
       <div className="flex items-center justify-between shrink-0 cursor-move">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[13px] font-semibold tracking-[-0.01em] truncate">
-            {effectiveSettings?.selectedGroup || "URTK Flow"}
+            {activeTargetName || "URTK Flow"}
           </span>
           <span
             className="text-[11px] capitalize"
@@ -254,7 +259,13 @@ export function WidgetView({
                             style={{ color: "var(--text-secondary)" }}
                           >
                             {l.timeStart}–{l.timeEnd}
-                            {l.teacher ? ` · ${l.teacher}` : ""}
+                            {isTeacherMode
+                              ? l.groupName
+                                ? ` · ${l.groupName}`
+                                : ""
+                              : l.teacher
+                              ? ` · ${l.teacher}`
+                              : ""}
                           </div>
                         </div>
                       </div>
@@ -270,7 +281,9 @@ export function WidgetView({
               </div>
             ) : (
               <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                Выберите группу в Настройках
+                {isTeacherMode
+                  ? "Выберите преподавателя в Настройках"
+                  : "Выберите группу в Настройках"}
               </p>
             )}
           </div>

@@ -46,24 +46,56 @@ const state = {
   consultFilter: "active",
   teacherQuery: "",
   groupQuery: "",
+  extraGroupQuery: "",
   courseFilter: "all",
   selectedDayIdx: 0,
+  scheduleViewKey: "primary",
+  compareDate: "",
   bellMode: new Date().getDay() === 1 ? "monday" : "regular",
   syncing: false,
   bellStatus: { text: "—", active: false, activePairNumber: null, nextPairNumber: null },
 };
 
 function loadSettings() {
+  const defaults = {
+    theme: "dark",
+    role: "student",
+    selectedGroup: "",
+    selectedTeacher: "",
+    multiGroupsEnabled: false,
+    extraGroups: [],
+    pinnedTeachers: [],
+    hideInstallBanner: false,
+  };
   try {
     const raw = localStorage.getItem(STORAGE_SETTINGS);
     if (raw) {
-      return Object.assign(
-        { theme: "dark", selectedGroup: "", pinnedTeachers: [], hideInstallBanner: false },
-        JSON.parse(raw)
-      );
+      const parsed = JSON.parse(raw);
+      const merged = Object.assign(defaults, parsed);
+      if (merged.role !== "student" && merged.role !== "teacher") merged.role = "student";
+      if (!Array.isArray(merged.extraGroups)) merged.extraGroups = [];
+      return merged;
     }
   } catch {}
-  return { theme: "dark", selectedGroup: "", pinnedTeachers: [], hideInstallBanner: false };
+  return defaults;
+}
+
+function isTeacherRole() {
+  return state.settings.role === "teacher";
+}
+
+function getActiveTargetName() {
+  return isTeacherRole() ? state.settings.selectedTeacher : state.settings.selectedGroup;
+}
+
+function getActiveExtraGroups() {
+  if (isTeacherRole() || !state.settings.multiGroupsEnabled || !state.settings.selectedGroup) {
+    return [];
+  }
+  const primary = state.settings.selectedGroup.toLowerCase();
+  return (state.settings.extraGroups || [])
+    .filter((g) => g && g.toLowerCase() !== primary)
+    .slice(0, 5);
 }
 
 function saveSettings() {
@@ -227,7 +259,7 @@ function computeBellStatus(now) {
 
   const schedule = state.data?.schedule || [];
   const hasGroupSchedule =
-    Boolean(state.settings.selectedGroup) &&
+    Boolean(getActiveTargetName()) &&
     schedule.length > 0 &&
     schedule.some((d) => {
       const dt = parseDateRu(d.date);
@@ -417,7 +449,7 @@ function safeHttpUrl(raw) {
 }
 
 function getSelectedGroupInfo() {
-  if (!state.settings.selectedGroup) return null;
+  if (isTeacherRole() || !state.settings.selectedGroup) return null;
   const target = state.settings.selectedGroup.toLowerCase();
   return (state.data?.groups || []).find((g) => g.name.toLowerCase() === target) || null;
 }
@@ -463,12 +495,38 @@ function renderDriveSlots() {
 }
 
 function renderHeader() {
-  const grp = state.settings.selectedGroup || "Выбрать";
+  const teacherMode = isTeacherRole();
+  const targetName = getActiveTargetName();
   const grpEl = document.getElementById("hdr-group-label");
-  if (grpEl) grpEl.textContent = grp;
+  if (grpEl) {
+    if (teacherMode && targetName) {
+      const surname = targetName.split(/\s+/)[0] || targetName;
+      grpEl.textContent = surname;
+    } else {
+      grpEl.textContent = targetName || "Выбрать";
+    }
+  }
+
+  const titleEl = document.getElementById("profile-card-title");
+  if (titleEl) {
+    titleEl.textContent = teacherMode ? "Преподаватель УРТК" : "Учебная группа УРТК";
+  }
 
   const curEl = document.getElementById("settings-cur-group");
-  if (curEl) curEl.textContent = state.settings.selectedGroup || "Не выбрана";
+  if (curEl) {
+    curEl.textContent = targetName || (teacherMode ? "Не выбран" : "Не выбрана");
+  }
+
+  document.querySelectorAll("[data-setrole]").forEach((b) => {
+    b.classList.toggle("active", b.getAttribute("data-setrole") === state.settings.role);
+  });
+
+  const gSearch = document.getElementById("group-search");
+  if (gSearch) {
+    gSearch.placeholder = teacherMode
+      ? "Поиск по фамилии преподавателя..."
+      : "Найти группу (например, ИсР-101, Э-171)...";
+  }
 
   const stEl = document.getElementById("hdr-status");
   if (stEl) {
@@ -597,9 +655,21 @@ function getFilteredGroups() {
   });
 }
 
+function getFilteredDirectoryTeachers() {
+  const list = state.data?.teachers || [];
+  const q = state.groupQuery.trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((t) => (t.name || "").toLowerCase().includes(q));
+}
+
 function selectGroupByName(name) {
   if (!name) return;
+  state.settings.role = "student";
   state.settings.selectedGroup = name;
+  state.settings.extraGroups = (state.settings.extraGroups || []).filter(
+    (g) => g.toLowerCase() !== name.toLowerCase()
+  );
+  state.scheduleViewKey = "primary";
   state.scheduleChanges = [];
   saveSettings();
   showToast(`Группа ${name} выбрана`);
@@ -607,74 +677,255 @@ function selectGroupByName(name) {
   syncPushGroupIfSubscribed();
 }
 
+function selectTeacherProfile(name) {
+  if (!name) return;
+  state.settings.role = "teacher";
+  state.settings.selectedTeacher = name;
+  state.scheduleViewKey = "primary";
+  state.scheduleChanges = [];
+  saveSettings();
+  showToast(`Преподаватель ${name} выбран`);
+  syncData();
+  syncPushGroupIfSubscribed();
+}
+
+function setProfileRole(role) {
+  const next = role === "teacher" ? "teacher" : "student";
+  if (state.settings.role === next) return;
+  state.settings.role = next;
+  state.groupQuery = "";
+  const gSearch = document.getElementById("group-search");
+  if (gSearch) gSearch.value = "";
+  state.scheduleViewKey = "primary";
+  state.scheduleChanges = [];
+  saveSettings();
+  renderAll();
+  syncData();
+  syncPushGroupIfSubscribed();
+}
+
+function toggleExtraGroup(groupName) {
+  if (!groupName) return;
+  if (groupName.toLowerCase() === (state.settings.selectedGroup || "").toLowerCase()) {
+    showToast("Это ваша основная группа");
+    return;
+  }
+  const cur = state.settings.extraGroups || [];
+  const exists = cur.some((g) => g.toLowerCase() === groupName.toLowerCase());
+  if (!exists && cur.length >= 5) {
+    showToast("Максимум 5 дополнительных групп");
+    return;
+  }
+  state.settings.extraGroups = exists
+    ? cur.filter((g) => g.toLowerCase() !== groupName.toLowerCase())
+    : [...cur, groupName];
+  state.settings.multiGroupsEnabled = true;
+  if (exists && state.scheduleViewKey.toLowerCase() === groupName.toLowerCase()) {
+    state.scheduleViewKey = "primary";
+  }
+  saveSettings();
+  showToast(exists ? `Группа ${groupName} убрана` : `Добавлена группа ${groupName}`);
+  renderGroups();
+  syncData();
+}
+
+function computeMobileDayComparison(dateStr, sources) {
+  const dt = parseDateRu(dateStr);
+  const bells = dt && dt.getDay() === 1
+    ? state.data?.bellsMonday || []
+    : state.data?.bellsRegular || [];
+  const bellTimeByPair = new Map();
+  for (const b of bells) {
+    const s = (b.part1 || "").split(/[–-]/)[0]?.trim() || "";
+    const e = (b.part2 || "").split(/[–-]/)[1]?.trim() || "";
+    if (s && e) bellTimeByPair.set(b.pairNumber, { start: s, end: e });
+  }
+
+  let minPair = 99;
+  let maxPair = 0;
+  const lessonsByGroup = new Map();
+
+  const finishes = sources.map((src) => {
+    const day = (src.days || []).find((d) => d.date === dateStr);
+    const lessons = day?.lessons || [];
+    lessonsByGroup.set(src.name, lessons);
+    let sMin = null, sStr = null, eMin = null, eStr = null;
+    for (const l of lessons) {
+      const p = Number(l.pairNumber) || 0;
+      if (p > 0) {
+        if (p < minPair) minPair = p;
+        if (p > maxPair) maxPair = p;
+      }
+      const fb = bellTimeByPair.get(p);
+      const st = l.timeStart || fb?.start || "";
+      const et = l.timeEnd || fb?.end || "";
+      const sm = parseMinutesStrict(st);
+      const em = parseMinutesStrict(et);
+      if (sm !== null && (sMin === null || sm < sMin)) { sMin = sm; sStr = st; }
+      if (em !== null && (eMin === null || em > eMin)) { eMin = em; eStr = et; }
+    }
+    return { name: src.name, isPrimary: src.isPrimary, count: lessons.length, start: sStr, end: eStr };
+  });
+
+  if (maxPair === 0 || minPair === 99) {
+    return { slots: [], commonFreePairs: [], allFreeAfter: null, finishes };
+  }
+
+  const slots = [];
+  const commonFreePairs = [];
+  for (let p = minPair; p <= maxPair; p++) {
+    const entries = sources.map((src) => ({
+      groupName: src.name,
+      isPrimary: src.isPrimary,
+      lessons: (lessonsByGroup.get(src.name) || []).filter((l) => Number(l.pairNumber) === p),
+    }));
+    const allFree = entries.every((e) => e.lessons.length === 0);
+    if (allFree) commonFreePairs.push(p);
+    const withTime = entries.flatMap((e) => e.lessons).find((l) => l.timeStart && l.timeEnd);
+    const fb = bellTimeByPair.get(p);
+    const timeRange = withTime
+      ? `${withTime.timeStart}–${withTime.timeEnd}`
+      : fb
+      ? `${fb.start}–${fb.end}`
+      : "";
+    slots.push({ pairNumber: p, timeRange, allFree, entries });
+  }
+
+  let latestEnd = -1;
+  let allFreeAfter = null;
+  for (const f of finishes) {
+    if (f.end) {
+      const m = parseMinutesStrict(f.end);
+      if (m !== null && m > latestEnd) {
+        latestEnd = m;
+        allFreeAfter = f.end;
+      }
+    }
+  }
+  return { slots, commonFreePairs, allFreeAfter, finishes };
+}
+
 function renderSchedule() {
   const titleEl = document.getElementById("sched-title");
   const subEl = document.getElementById("sched-sub");
-  const gInfo = getSelectedGroupInfo();
-
-  if (titleEl) {
-    titleEl.textContent = state.settings.selectedGroup
-      ? `Расписание · ${state.settings.selectedGroup}`
-      : "Расписание";
-  }
-  if (subEl) {
-    subEl.textContent =
-      gInfo && gInfo.specialtyName
-        ? `${gInfo.course} курс · ${gInfo.specialtyName}`
-        : "Академикс · akademiks.urtt.ru";
-  }
-
+  const multiBarEl = document.getElementById("multi-group-bar");
   const stripEl = document.getElementById("day-strip");
   const listEl = document.getElementById("lesson-list");
   if (!stripEl || !listEl) return;
 
-  // Inline first-run group picker right inside Schedule tab when no group is chosen yet
-  if (!state.settings.selectedGroup) {
+  const teacherMode = isTeacherRole();
+  const targetName = getActiveTargetName();
+  const gInfo = getSelectedGroupInfo();
+  const extras = getActiveExtraGroups();
+
+  let viewKey = state.scheduleViewKey;
+  if (teacherMode || !extras.length || (viewKey !== "primary" && viewKey !== "compare" && !extras.includes(viewKey))) {
+    viewKey = "primary";
+    state.scheduleViewKey = "primary";
+  }
+
+  if (titleEl) {
+    if (viewKey === "compare") {
+      titleEl.textContent = "Сравнение и окна";
+    } else if (viewKey !== "primary") {
+      titleEl.textContent = `Расписание · ${viewKey}`;
+    } else {
+      titleEl.textContent = targetName ? `Расписание · ${targetName}` : "Расписание";
+    }
+  }
+  if (subEl) {
+    if (teacherMode) {
+      subEl.textContent = "Режим преподавателя · Академикс";
+    } else if (viewKey === "compare") {
+      subEl.textContent = `Общие окна и пары (${extras.length + 1} групп)`;
+    } else if (viewKey !== "primary") {
+      subEl.textContent = "Дополнительная группа · Академикс";
+    } else {
+      subEl.textContent =
+        gInfo && gInfo.specialtyName
+          ? `${gInfo.course} курс · ${gInfo.specialtyName}`
+          : "Академикс · akademiks.urtt.ru";
+    }
+  }
+
+  // Multi-group chips bar
+  if (multiBarEl) {
+    if (!teacherMode && targetName && extras.length) {
+      multiBarEl.classList.remove("hidden");
+      multiBarEl.innerHTML = [
+        `<button type="button" class="multi-chip ${viewKey === "primary" ? "active" : ""}" data-mview="primary">Моя · ${escapeHtml(state.settings.selectedGroup)}</button>`,
+        ...extras.map(
+          (gn) =>
+            `<button type="button" class="multi-chip ${viewKey === gn ? "active" : ""}" data-mview="${escapeHtml(gn)}">${escapeHtml(gn)}</button>`
+        ),
+        `<button type="button" class="multi-chip ${viewKey === "compare" ? "active" : ""}" data-mview="compare">Сравнение</button>`,
+      ].join("");
+      multiBarEl.querySelectorAll("[data-mview]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.scheduleViewKey = btn.getAttribute("data-mview") || "primary";
+          state.selectedDayIdx = 0;
+          renderSchedule();
+        });
+      });
+    } else {
+      multiBarEl.classList.add("hidden");
+      multiBarEl.innerHTML = "";
+    }
+  }
+
+  // Inline first-run picker when no group/teacher is chosen yet
+  if (!targetName) {
     stripEl.innerHTML = "";
-    const filtered = getFilteredGroups();
-    const chipsHtml = filtered.length
-      ? filtered
-          .slice(0, 80)
-          .map(
-            (g) =>
-              `<button type="button" class="g-chip" data-inline-gname="${escapeHtml(
-                g.name
-              )}">${escapeHtml(g.name)}</button>`
-          )
-          .join("")
-      : '<div class="chips-loading">Группы загружаются...</div>';
-
-    const courses = [
-      ["all", "Все"],
-      ["1", "1 курс"],
-      ["2", "2 курс"],
-      ["3", "3 курс"],
-      ["4", "4 курс"],
-    ];
-    const courseBtns = courses
-      .map(
-        ([cid, lbl]) =>
-          `<button type="button" class="g-chip ${
-            state.courseFilter === cid ? "active" : ""
-          }" data-inline-course="${cid}">${lbl}</button>`
-      )
-      .join("");
-
-    listEl.innerHTML = `<div class="glass-card settings-card">
-      <div class="sc-head">
-        <span>Выберите вашу группу УРТК</span>
-      </div>
-      <div class="course-pills">${courseBtns}</div>
-      <input
-        type="search"
-        id="inline-group-search"
-        class="glass-input compact"
-        placeholder="Поиск группы (ИсР-101, Би-131)..."
-        value="${escapeHtml(state.groupQuery)}"
-        autocomplete="off"
-      />
-      <div class="group-chips">${chipsHtml}</div>
+    const roleSegHtml = `<div class="segmented">
+      <button type="button" class="seg-btn ${!teacherMode ? "active" : ""}" data-inline-role="student">Студент</button>
+      <button type="button" class="seg-btn ${teacherMode ? "active" : ""}" data-inline-role="teacher">Преподаватель</button>
     </div>`;
+
+    if (teacherMode) {
+      const tList = getFilteredDirectoryTeachers();
+      const tChips = tList.length
+        ? tList
+            .map(
+              (t) =>
+                `<button type="button" class="g-chip" data-inline-tname="${escapeHtml(t.name)}">${escapeHtml(t.name)}</button>`
+            )
+            .join("")
+        : '<div class="chips-loading">Преподаватели загружаются...</div>';
+
+      listEl.innerHTML = `<div class="glass-card settings-card">
+        <div class="sc-head"><span>Выберите преподавателя УРТК</span></div>
+        ${roleSegHtml}
+        <input type="search" id="inline-group-search" class="glass-input compact" placeholder="Поиск по фамилии преподавателя..." value="${escapeHtml(state.groupQuery)}" autocomplete="off" />
+        <div class="group-chips">${tChips}</div>
+      </div>`;
+    } else {
+      const filtered = getFilteredGroups();
+      const chipsHtml = filtered.length
+        ? filtered
+            .slice(0, 80)
+            .map(
+              (g) =>
+                `<button type="button" class="g-chip" data-inline-gname="${escapeHtml(g.name)}">${escapeHtml(g.name)}</button>`
+            )
+            .join("")
+        : '<div class="chips-loading">Группы загружаются...</div>';
+
+      const courses = [["all", "Все"], ["1", "1 курс"], ["2", "2 курс"], ["3", "3 курс"], ["4", "4 курс"]];
+      const courseBtns = courses
+        .map(
+          ([cid, lbl]) =>
+            `<button type="button" class="g-chip ${state.courseFilter === cid ? "active" : ""}" data-inline-course="${cid}">${lbl}</button>`
+        )
+        .join("");
+
+      listEl.innerHTML = `<div class="glass-card settings-card">
+        <div class="sc-head"><span>Выберите вашу группу УРТК</span></div>
+        ${roleSegHtml}
+        <div class="course-pills">${courseBtns}</div>
+        <input type="search" id="inline-group-search" class="glass-input compact" placeholder="Поиск группы (ИсР-101, Э-171)..." value="${escapeHtml(state.groupQuery)}" autocomplete="off" />
+        <div class="group-chips">${chipsHtml}</div>
+      </div>`;
+    }
 
     const inp = document.getElementById("inline-group-search");
     if (inp) {
@@ -689,6 +940,9 @@ function renderSchedule() {
         }
       });
     }
+    listEl.querySelectorAll("[data-inline-role]").forEach((btn) => {
+      btn.addEventListener("click", () => setProfileRole(btn.getAttribute("data-inline-role")));
+    });
     listEl.querySelectorAll("[data-inline-course]").forEach((btn) => {
       btn.addEventListener("click", () => {
         state.courseFilter = btn.getAttribute("data-inline-course");
@@ -698,16 +952,145 @@ function renderSchedule() {
     listEl.querySelectorAll("[data-inline-gname]").forEach((btn) => {
       btn.addEventListener("click", () => selectGroupByName(btn.getAttribute("data-inline-gname")));
     });
+    listEl.querySelectorAll("[data-inline-tname]").forEach((btn) => {
+      btn.addEventListener("click", () => selectTeacherProfile(btn.getAttribute("data-inline-tname")));
+    });
     renderBells();
     return;
   }
 
-  const days = state.data?.schedule || [];
+  // Compare & Common Windows Mode
+  if (viewKey === "compare") {
+    const sources = [
+      { name: state.settings.selectedGroup, isPrimary: true, days: state.data?.schedule || [] },
+      ...extras.map((gn) => ({
+        name: gn,
+        isPrimary: false,
+        days: (state.data?.extraSchedules && state.data.extraSchedules[gn]) || [],
+      })),
+    ];
+
+    const dateMap = new Map();
+    for (const s of sources) {
+      for (const d of s.days) {
+        if (d.date && !dateMap.has(d.date)) dateMap.set(d.date, d.weekday);
+      }
+    }
+    const compareDates = Array.from(dateMap.entries())
+      .map(([date, weekday]) => ({ date, weekday }))
+      .sort((a, b) => (parseDateRu(a.date)?.getTime() || 0) - (parseDateRu(b.date)?.getTime() || 0));
+
+    if (!compareDates.length) {
+      stripEl.innerHTML = "";
+      listEl.innerHTML = '<div class="glass-card empty-state">Расписания для сравнения пока не загружены.</div>';
+      renderBells();
+      return;
+    }
+
+    if (!state.compareDate || !compareDates.some((d) => d.date === state.compareDate)) {
+      const todayStr = formatDateRu(new Date());
+      const hit = compareDates.find((d) => d.date === todayStr);
+      state.compareDate = hit ? hit.date : compareDates[0].date;
+    }
+
+    stripEl.innerHTML = compareDates
+      .map(
+        (d) => `<button type="button" class="day-pill ${d.date === state.compareDate ? "active" : ""}" data-cmpdate="${escapeHtml(d.date)}">
+          <div class="dp-wd">${escapeHtml(shortWeekday(d.weekday))}</div>
+          <div class="dp-dt tabular">${escapeHtml(String(d.date || "").slice(0, 5))}</div>
+        </button>`
+      )
+      .join("");
+
+    stripEl.querySelectorAll("[data-cmpdate]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.compareDate = btn.getAttribute("data-cmpdate") || "";
+        renderSchedule();
+      });
+    });
+
+    const cmp = computeMobileDayComparison(state.compareDate, sources);
+    const summaryTitle = cmp.commonFreePairs.length
+      ? `Общие окна: ${cmp.commonFreePairs.map((p) => `${p} пара`).join(", ")}`
+      : cmp.slots.length
+      ? "Общих окон между парами нет"
+      : "В этот день пар нет";
+
+    const freeAfterHtml = cmp.allFreeAfter
+      ? `<span class="badge-green tabular">Все свободны после ${escapeHtml(cmp.allFreeAfter)}</span>`
+      : "";
+
+    const finishesHtml = cmp.finishes
+      .map(
+        (f) => `<span class="compare-fin-pill tabular"><strong>${escapeHtml(f.name)}</strong>: ${
+          f.count > 0 ? `${f.count} пар (${escapeHtml(f.start || "")}–${escapeHtml(f.end || "")})` : "пар нет"
+        }</span>`
+      )
+      .join("");
+
+    const summaryCard = `<div class="glass-card compare-summary">
+      <div class="compare-sum-top"><span>${escapeHtml(summaryTitle)}</span>${freeAfterHtml}</div>
+      <div class="compare-finishes">${finishesHtml}</div>
+    </div>`;
+
+    const slotCards = cmp.slots
+      .map((slot) => {
+        const rows = slot.entries
+          .map((e) => {
+            const free = !e.lessons.length;
+            const subj = free
+              ? '<span class="compare-free">Свободно (окно)</span>'
+              : `<span class="compare-subj">${escapeHtml(e.lessons.map((l) => l.subject).join(" / "))}</span>`;
+            const room = free
+              ? ""
+              : `<span class="compare-room tabular">${escapeHtml(
+                  e.lessons
+                    .map((l) => l.room || "—")
+                    .filter((v, i, a) => a.indexOf(v) === i)
+                    .join(", ")
+                )}</span>`;
+            return `<div class="compare-row">
+              <div class="compare-row-left">
+                <span class="compare-grp ${e.isPrimary ? "is-primary" : ""}">${escapeHtml(e.groupName)}</span>
+                ${subj}
+              </div>
+              ${room}
+            </div>`;
+          })
+          .join("");
+
+        return `<article class="glass-card compare-card ${slot.allFree ? "is-all-free" : ""}">
+          <div class="compare-head">
+            <div class="compare-head-left">
+              <span class="${slot.allFree ? "badge-green" : "badge-blue"} tabular">${slot.pairNumber} пара</span>
+              <span class="compare-time tabular">${escapeHtml(slot.timeRange)}</span>
+            </div>
+            ${slot.allFree ? '<span class="badge-green">Общее окно</span>' : ""}
+          </div>
+          <div class="compare-rows">${rows}</div>
+        </article>`;
+      })
+      .join("");
+
+    listEl.innerHTML = summaryCard + slotCards;
+    renderBells();
+    return;
+  }
+
+  const days =
+    viewKey === "primary"
+      ? state.data?.schedule || []
+      : (state.data?.extraSchedules && state.data.extraSchedules[viewKey]) || [];
+
   if (!days.length) {
     stripEl.innerHTML = "";
-    listEl.innerHTML = `<div class="glass-card empty-state">Расписание для группы ${escapeHtml(
-      state.settings.selectedGroup
-    )} пока не опубликовано.</div>`;
+    listEl.innerHTML = `<div class="glass-card empty-state">Расписание для ${
+      viewKey !== "primary"
+        ? `группы ${escapeHtml(viewKey)}`
+        : teacherMode
+        ? `преподавателя ${escapeHtml(targetName)}`
+        : `группы ${escapeHtml(targetName)}`
+    } пока не опубликовано.</div>`;
   } else {
     if (state.selectedDayIdx >= days.length) state.selectedDayIdx = 0;
     stripEl.innerHTML = days
@@ -729,7 +1112,7 @@ function renderSchedule() {
     });
 
     const activeDay = days[state.selectedDayIdx];
-    const isToday = activeDay && activeDay.date === formatDateRu(new Date());
+    const isToday = viewKey === "primary" && activeDay && activeDay.date === formatDateRu(new Date());
     const lessons = activeDay?.lessons || [];
 
     listEl.innerHTML = lessons
@@ -737,7 +1120,11 @@ function renderSchedule() {
         const pairNum = Number(l.pairNumber) || 0;
         const isRunning = isToday && state.bellStatus.activePairNumber === pairNum;
         const isNext = isToday && !isRunning && state.bellStatus.nextPairNumber === pairNum;
-        const consult = findConsultationForTeacher(l.teacher);
+        const consult = !teacherMode ? findConsultationForTeacher(l.teacher) : null;
+        const groupPillHtml =
+          teacherMode && l.groupName
+            ? `<span class="lesson-badges"><span class="badge-blue">${escapeHtml(l.groupName)}</span></span>`
+            : "";
         const badgeHtml = isRunning
           ? '<span class="lesson-badges"><span class="badge-green">Идёт сейчас</span></span>'
           : isNext
@@ -759,9 +1146,9 @@ function renderSchedule() {
             <span class="pair-lbl">пара</span>
           </div>
           <div class="lesson-body">
-            <div class="lesson-subj">${escapeHtml(l.subject)}${badgeHtml}</div>
+            <div class="lesson-subj">${escapeHtml(l.subject)}${groupPillHtml}${badgeHtml}</div>
             <div class="lesson-meta tabular">${escapeHtml(l.timeStart)}–${escapeHtml(l.timeEnd)}${
-          l.teacher ? ` · ${escapeHtml(l.teacher)}` : ""
+          !teacherMode && l.teacher ? ` · ${escapeHtml(l.teacher)}` : ""
         }</div>
           </div>
           <div class="lesson-right">
@@ -814,26 +1201,102 @@ function renderBells() {
 
 function renderGroups() {
   const chipsEl = document.getElementById("group-chips");
-  if (!chipsEl) return;
-  const filtered = getFilteredGroups();
+  const teacherMode = isTeacherRole();
 
-  if (!filtered.length) {
-    chipsEl.innerHTML = '<div class="chips-loading">Группы загружаются...</div>';
-    return;
+  if (chipsEl) {
+    if (teacherMode) {
+      const list = getFilteredDirectoryTeachers();
+      if (!list.length) {
+        chipsEl.innerHTML = '<div class="chips-loading">Преподаватели загружаются...</div>';
+      } else {
+        chipsEl.innerHTML = list
+          .map(
+            (t) => `<button type="button" class="g-chip ${
+              t.name.toLowerCase() === (state.settings.selectedTeacher || "").toLowerCase()
+                ? "active"
+                : ""
+            }" data-tname="${escapeHtml(t.name)}">${escapeHtml(t.name)}</button>`
+          )
+          .join("");
+        chipsEl.querySelectorAll("[data-tname]").forEach((btn) => {
+          btn.addEventListener("click", () => selectTeacherProfile(btn.getAttribute("data-tname")));
+        });
+      }
+    } else {
+      const filtered = getFilteredGroups();
+      if (!filtered.length) {
+        chipsEl.innerHTML = '<div class="chips-loading">Группы загружаются...</div>';
+      } else {
+        chipsEl.innerHTML = filtered
+          .slice(0, 80)
+          .map(
+            (g) => `<button type="button" class="g-chip ${
+              g.name === state.settings.selectedGroup ? "active" : ""
+            }" data-gname="${escapeHtml(g.name)}">${escapeHtml(g.name)}</button>`
+          )
+          .join("");
+        chipsEl.querySelectorAll("[data-gname]").forEach((btn) => {
+          btn.addEventListener("click", () => selectGroupByName(btn.getAttribute("data-gname")));
+        });
+      }
+    }
   }
 
-  chipsEl.innerHTML = filtered
-    .slice(0, 80)
-    .map(
-      (g) => `<button type="button" class="g-chip ${
-        g.name === state.settings.selectedGroup ? "active" : ""
-      }" data-gname="${escapeHtml(g.name)}">${escapeHtml(g.name)}</button>`
-    )
-    .join("");
+  // Extra Groups (Multi-groups) card in Settings (student mode only)
+  const extraCard = document.getElementById("extra-groups-card");
+  if (extraCard) {
+    extraCard.classList.toggle("hidden", teacherMode);
+  }
+  const toggleBtn = document.getElementById("btn-multi-toggle");
+  const extraBody = document.getElementById("extra-groups-body");
+  const countPill = document.getElementById("extra-groups-count");
+  const enabled = Boolean(state.settings.multiGroupsEnabled);
+  const pickedList = (state.settings.extraGroups || []).filter(
+    (g) => g.toLowerCase() !== (state.settings.selectedGroup || "").toLowerCase()
+  );
 
-  chipsEl.querySelectorAll("[data-gname]").forEach((btn) => {
-    btn.addEventListener("click", () => selectGroupByName(btn.getAttribute("data-gname")));
-  });
+  if (toggleBtn) toggleBtn.setAttribute("aria-checked", enabled ? "true" : "false");
+  if (extraBody) extraBody.classList.toggle("hidden", !enabled);
+  if (countPill) {
+    countPill.textContent = `${pickedList.length} / 5`;
+    countPill.classList.toggle("hidden", !enabled || !pickedList.length);
+  }
+
+  if (enabled && !teacherMode) {
+    const selEl = document.getElementById("extra-selected-chips");
+    if (selEl) {
+      selEl.innerHTML = pickedList
+        .map(
+          (gn) =>
+            `<button type="button" class="g-chip active" data-xremove="${escapeHtml(gn)}">${escapeHtml(gn)} ×</button>`
+        )
+        .join("");
+      selEl.querySelectorAll("[data-xremove]").forEach((btn) => {
+        btn.addEventListener("click", () => toggleExtraGroup(btn.getAttribute("data-xremove")));
+      });
+    }
+
+    const extraChipsEl = document.getElementById("extra-group-chips");
+    if (extraChipsEl) {
+      const q = (state.extraGroupQuery || "").trim().toLowerCase();
+      const primaryLow = (state.settings.selectedGroup || "").toLowerCase();
+      const candidates = (state.data?.groups || []).filter((g) => {
+        if (g.name.toLowerCase() === primaryLow) return false;
+        if (!q) return true;
+        return g.name.toLowerCase().includes(q) || (g.specialtyName || "").toLowerCase().includes(q);
+      });
+      extraChipsEl.innerHTML = candidates
+        .slice(0, 80)
+        .map((g) => {
+          const isPicked = pickedList.some((x) => x.toLowerCase() === g.name.toLowerCase());
+          return `<button type="button" class="g-chip ${isPicked ? "active" : ""}" data-xtoggle="${escapeHtml(g.name)}">${escapeHtml(g.name)}</button>`;
+        })
+        .join("");
+      extraChipsEl.querySelectorAll("[data-xtoggle]").forEach((btn) => {
+        btn.addEventListener("click", () => toggleExtraGroup(btn.getAttribute("data-xtoggle")));
+      });
+    }
+  }
 }
 
 function diffSchedules(prevDays, nextDays) {
@@ -846,8 +1309,9 @@ function diffSchedules(prevDays, nextDays) {
         pair: Number(l.pairNumber) || 0,
         subject: String(l.subject || "").trim(),
         teacher: String(l.teacher || "").trim(),
+        group: String(l.groupName || "").trim(),
         room: String(l.room || "").trim(),
-        time: String(l.startTime || "").trim(),
+        time: String(l.timeStart || "").trim(),
       }))
       .sort((a, b) => a.pair - b.pair || a.subject.localeCompare(b.subject));
 
@@ -935,20 +1399,29 @@ async function syncData() {
   const prevData = state.data;
 
   try {
-    const q = state.settings.selectedGroup
-      ? `?group=${encodeURIComponent(state.settings.selectedGroup)}`
-      : "";
-    const resp = await fetch(`/app/api.php${q}`, { cache: "no-store" });
+    const params = new URLSearchParams();
+    if (isTeacherRole()) {
+      if (state.settings.selectedTeacher) {
+        params.set("teacher", state.settings.selectedTeacher);
+      }
+    } else {
+      if (state.settings.selectedGroup) {
+        params.set("group", state.settings.selectedGroup);
+      }
+      const extras = getActiveExtraGroups();
+      if (extras.length) {
+        params.set("extras", extras.join(","));
+      }
+    }
+    const qs = params.toString();
+    const resp = await fetch(`/app/api.php${qs ? "?" + qs : ""}`, { cache: "no-store" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const payload = await resp.json();
     if (!payload.ok) throw new Error(payload.error || "Ошибка API");
 
-    if (
-      prevData &&
-      prevData.selectedGroup &&
-      payload.selectedGroup &&
-      prevData.selectedGroup.toLowerCase() === payload.selectedGroup.toLowerCase()
-    ) {
+    const prevTarget = prevData?.selectedTeacher || prevData?.selectedGroup || "";
+    const nextTarget = payload.selectedTeacher || payload.selectedGroup || "";
+    if (prevTarget && nextTarget && prevTarget.toLowerCase() === nextTarget.toLowerCase()) {
       const changes = diffSchedules(prevData.schedule, payload.schedule);
       if (changes.length) {
         state.scheduleChanges = changes;
@@ -1043,6 +1516,29 @@ document.getElementById("teacher-search")?.addEventListener("input", (e) => {
   renderConsultations();
 });
 
+document.querySelectorAll("[data-setrole]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    setProfileRole(btn.getAttribute("data-setrole"));
+  });
+});
+
+document.getElementById("btn-multi-toggle")?.addEventListener("click", () => {
+  state.settings.multiGroupsEnabled = !state.settings.multiGroupsEnabled;
+  if (!state.settings.multiGroupsEnabled) {
+    state.scheduleViewKey = "primary";
+  }
+  saveSettings();
+  renderAll();
+  if (state.settings.multiGroupsEnabled && getActiveExtraGroups().length) {
+    syncData();
+  }
+});
+
+document.getElementById("extra-group-search")?.addEventListener("input", (e) => {
+  state.extraGroupQuery = e.target.value;
+  renderGroups();
+});
+
 document.getElementById("group-search")?.addEventListener("input", (e) => {
   state.groupQuery = e.target.value;
   renderGroups();
@@ -1127,13 +1623,14 @@ async function refreshPushUi() {
   const sub = reg ? await reg.pushManager.getSubscription().catch(() => null) : null;
   toggleBtn.disabled = false;
 
+  const targetName = getActiveTargetName();
   if (sub) {
     pill.textContent = "Включены";
     pill.classList.add("is-on");
     if (note) {
-      note.textContent = state.settings.selectedGroup
-        ? `Отслеживается расписание группы ${state.settings.selectedGroup} (проверка каждые 15 мин).`
-        : "Выберите учебную группу выше, чтобы получать уведомления о заменах.";
+      note.textContent = targetName
+        ? `Отслеживается расписание ${isTeacherRole() ? "преподавателя" : "группы"} ${targetName} (проверка каждые 15 мин).`
+        : "Выберите группу или преподавателя выше, чтобы получать уведомления о заменах.";
     }
     toggleBtn.textContent = "Отключить уведомления";
     toggleBtn.classList.remove("push-btn-primary");
@@ -1151,7 +1648,8 @@ async function refreshPushUi() {
 }
 
 async function syncPushGroupIfSubscribed() {
-  if (!state.settings.selectedGroup || !("PushManager" in window)) return;
+  const targetName = getActiveTargetName();
+  if (!targetName || !("PushManager" in window)) return;
   try {
     const reg = await getPushRegistration();
     const sub = reg ? await reg.pushManager.getSubscription() : null;
@@ -1161,7 +1659,9 @@ async function syncPushGroupIfSubscribed() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "subscribe",
+        role: state.settings.role,
         group: state.settings.selectedGroup,
+        teacher: state.settings.selectedTeacher,
         subscription: sub.toJSON(),
       }),
     });
@@ -1190,8 +1690,13 @@ async function togglePushSubscription() {
       return;
     }
 
-    if (!state.settings.selectedGroup) {
-      showToast("Сначала выберите учебную группу выше");
+    const targetName = getActiveTargetName();
+    if (!targetName) {
+      showToast(
+        isTeacherRole()
+          ? "Сначала выберите преподавателя выше"
+          : "Сначала выберите учебную группу выше"
+      );
       return;
     }
 
@@ -1217,7 +1722,9 @@ async function togglePushSubscription() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "subscribe",
+        role: state.settings.role,
         group: state.settings.selectedGroup,
+        teacher: state.settings.selectedTeacher,
         subscription: sub.toJSON(),
       }),
     });
@@ -1227,7 +1734,7 @@ async function togglePushSubscription() {
       throw new Error(saveJson.error || "Ошибка сохранения подписки");
     }
 
-    showToast(`Уведомления для ${state.settings.selectedGroup} включены`);
+    showToast(`Уведомления для ${targetName} включены`);
   } catch (e) {
     showToast(e.message || "Не удалось настроить уведомления");
   } finally {
@@ -1283,7 +1790,7 @@ if ("serviceWorker" in navigator) {
 applyTheme();
 initInstallBanner();
 refreshPushUi();
-if (state.settings.selectedGroup || state.settings.pinnedTeachers.length) {
+if (getActiveTargetName() || state.settings.pinnedTeachers.length) {
   state.consultFilter = "mine";
   document.querySelectorAll("[data-cfilter]").forEach((b) => {
     b.classList.toggle("active", b.getAttribute("data-cfilter") === "mine");

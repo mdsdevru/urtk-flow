@@ -1,5 +1,6 @@
 use crate::models::{
     BellSlot, ConsultationSlot, DaySchedule, GroupInfo, LessonItem, TeacherConsultations,
+    TeacherInfo,
 };
 use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, Utc, Weekday};
 use futures_util::StreamExt;
@@ -219,8 +220,72 @@ pub fn teacher_names_match(full_or_sheet: &str, short_or_akademiks: &str) -> boo
     true
 }
 
-/// Extract groups from Akademiks SSR HTML + enrich with Google Sheet Navigator metadata.
-pub async fn fetch_groups() -> Result<Vec<GroupInfo>, String> {
+pub(crate) fn extract_teachers_from_html(unescaped: &str) -> Vec<TeacherInfo> {
+    let needle = "\"teachers\":[";
+    let Some(start_idx) = unescaped.find(needle) else {
+        return Vec::new();
+    };
+    let rest = &unescaped[start_idx + "\"teachers\":".len()..];
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut escaped = false;
+    let mut end_idx = None;
+    for (i, ch) in rest.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && in_str {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            in_str = !in_str;
+            continue;
+        }
+        if !in_str {
+            if ch == '[' {
+                depth += 1;
+            } else if ch == ']' {
+                depth -= 1;
+                if depth == 0 {
+                    end_idx = Some(i + 1);
+                    break;
+                }
+            }
+        }
+    }
+
+    let Some(end) = end_idx else {
+        return Vec::new();
+    };
+    let slice = &rest[..end];
+    let Ok(raw_list) = serde_json::from_str::<Vec<TeacherInfo>>(slice) else {
+        return Vec::new();
+    };
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut teachers: Vec<TeacherInfo> = raw_list
+        .into_iter()
+        .filter(|t| {
+            let id_ok = !t.id.is_empty()
+                && t.id.len() <= 64
+                && t.id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+            let name_ok = !t.name.trim().is_empty() && t.name.chars().count() <= 100;
+            id_ok && name_ok && seen.insert(t.id.clone())
+        })
+        .map(|t| TeacherInfo {
+            id: t.id,
+            name: t.name.trim().to_string(),
+        })
+        .collect();
+    teachers.sort_by(|a, b| a.name.cmp(&b.name));
+    teachers
+}
+
+/// Extract groups and teachers from Akademiks SSR HTML + enrich groups with Google Sheet Navigator metadata.
+pub async fn fetch_directory() -> Result<(Vec<GroupInfo>, Vec<TeacherInfo>), String> {
     let client = http_client()?;
 
     // 1. Parse Navigator CSV for course & specialty metadata
@@ -251,14 +316,17 @@ pub async fn fetch_groups() -> Result<Vec<GroupInfo>, String> {
         }
     }
 
-    // 2. Fetch Akademiks /lk/all-schedules to extract real group slugs (id + title)
+    // 2. Fetch Akademiks /lk/all-schedules to extract real group slugs and teachers
     let mut groups: Vec<GroupInfo> = Vec::new();
+    let mut teachers: Vec<TeacherInfo> = Vec::new();
     let mut seen_ids: HashSet<String> = HashSet::new();
 
     if let Ok(resp) = client.get(AKADEMIKS_GROUPS_URL).send().await {
         if let Ok(html) = read_bounded_text(resp, MAX_PARSER_RESPONSE_BYTES).await {
             // Unescape JSON chunks embedded in Next.js RSC payload
             let unescaped = html.replace("\\\"", "\"");
+            teachers = extract_teachers_from_html(&unescaped);
+
             let bytes = unescaped.as_bytes();
             let needle = b"\"id\":\"";
             let mut pos = 0;
@@ -319,7 +387,7 @@ pub async fn fetch_groups() -> Result<Vec<GroupInfo>, String> {
     }
 
     groups.sort_by(|a, b| a.course.cmp(&b.course).then(a.name.cmp(&b.name)));
-    Ok(groups)
+    Ok((groups, teachers))
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -377,10 +445,12 @@ fn translit_group_slug(name: &str) -> String {
     out
 }
 
-/// Fetch schedule for a single week starting on `monday_date` from Akademiks tRPC API.
+/// Fetch schedule for a single week starting on `monday_date` from Akademiks tRPC API
+/// for either a student group (`group_id`) or a teacher (`teacher_id`).
 async fn fetch_week_schedule(
     client: &reqwest::Client,
-    group_id: &str,
+    group_id: Option<&str>,
+    teacher_id: Option<&str>,
     monday_date: NaiveDate,
 ) -> Result<(Vec<DaySchedule>, Vec<String>), String> {
     let tz = ekb_offset();
@@ -392,20 +462,26 @@ async fn fetch_week_schedule(
     let monday_utc = monday_ekb.with_timezone(&Utc);
     let week_start_iso = monday_utc.format("%Y-%m-%dT%H:%M:%S.000Z").to_string();
 
+    let mut meta_values = serde_json::Map::new();
+    if group_id.is_none() {
+        meta_values.insert("groupId".into(), serde_json::json!(["undefined"]));
+    }
+    if teacher_id.is_none() {
+        meta_values.insert("teacherId".into(), serde_json::json!(["undefined"]));
+    }
+    meta_values.insert("classroomId".into(), serde_json::json!(["undefined"]));
+    meta_values.insert("weekStart".into(), serde_json::json!(["Date"]));
+
     let input_json = serde_json::json!({
         "0": {
             "json": {
                 "groupId": group_id,
-                "teacherId": null,
+                "teacherId": teacher_id,
                 "classroomId": null,
                 "weekStart": week_start_iso
             },
             "meta": {
-                "values": {
-                    "teacherId": ["undefined"],
-                    "classroomId": ["undefined"],
-                    "weekStart": ["Date"]
-                },
+                "values": meta_values,
                 "v": 1
             }
         }
@@ -461,6 +537,12 @@ async fn fetch_week_schedule(
                     if !teacher.is_empty() {
                         teachers_set.insert(teacher.clone());
                     }
+                    let group_name = l
+                        .get("Group")
+                        .and_then(|g| g.get("title"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty());
                     let room = l
                         .get("Classroom")
                         .and_then(|c| c.get("name"))
@@ -487,10 +569,11 @@ async fn fetch_week_schedule(
                         teacher,
                         room,
                         lesson_type,
+                        group_name,
                     });
                 }
             }
-            lessons.sort_by_key(|l| l.pair_number);
+            lessons.sort_by(|a, b| a.pair_number.cmp(&b.pair_number).then(a.group_name.cmp(&b.group_name)));
             if !lessons.is_empty() {
                 days.push(DaySchedule {
                     date: date_fmt,
@@ -506,12 +589,13 @@ async fn fetch_week_schedule(
     Ok((days, teachers))
 }
 
-/// Fetch schedule for a specific group from Akademiks tRPC API.
-/// On Sunday (or late Saturday), automatically targets the upcoming week starting Monday,
-/// falling back to the current week if the next week is not published yet.
-/// Also collects teachers across both weeks so teacher matching is complete.
-pub async fn fetch_group_schedule(group_id: &str) -> Result<(Vec<DaySchedule>, Vec<String>), String> {
-    if group_id.is_empty() {
+async fn fetch_schedule_for_target(
+    group_id: Option<&str>,
+    teacher_id: Option<&str>,
+) -> Result<(Vec<DaySchedule>, Vec<String>), String> {
+    if group_id.map(|s| s.is_empty()).unwrap_or(true)
+        && teacher_id.map(|s| s.is_empty()).unwrap_or(true)
+    {
         return Ok((Vec::new(), Vec::new()));
     }
     let client = http_client()?;
@@ -531,11 +615,12 @@ pub async fn fetch_group_schedule(group_id: &str) -> Result<(Vec<DaySchedule>, V
         (current_monday, next_monday)
     };
 
-    let (primary_days, primary_teachers) = fetch_week_schedule(&client, group_id, primary_mon)
-        .await
-        .unwrap_or_default();
+    let (primary_days, primary_teachers) =
+        fetch_week_schedule(&client, group_id, teacher_id, primary_mon)
+            .await
+            .unwrap_or_default();
     let (secondary_days, secondary_teachers) =
-        fetch_week_schedule(&client, group_id, secondary_mon)
+        fetch_week_schedule(&client, group_id, teacher_id, secondary_mon)
             .await
             .unwrap_or_default();
 
@@ -551,6 +636,16 @@ pub async fn fetch_group_schedule(group_id: &str) -> Result<(Vec<DaySchedule>, V
     };
 
     Ok((days, teachers))
+}
+
+pub async fn fetch_group_schedule(group_id: &str) -> Result<(Vec<DaySchedule>, Vec<String>), String> {
+    fetch_schedule_for_target(Some(group_id), None).await
+}
+
+pub async fn fetch_teacher_schedule(
+    teacher_id: &str,
+) -> Result<(Vec<DaySchedule>, Vec<String>), String> {
+    fetch_schedule_for_target(None, Some(teacher_id)).await
 }
 
 fn format_utc_to_ekb_hhmm(iso: &str) -> String {
@@ -970,5 +1065,11 @@ mod parser_security_tests {
         ];
         sort_consultations(&mut items);
         assert_eq!(items[0].teacher_name, "Яковлева Ольга");
+
+        let sample_teachers = r#"{"teachers":[{"id":"alfereva-ov","name":"Алферьева О.В."},{"id":"bad/../id","name":"Evil"}]}"#;
+        let parsed_teachers = extract_teachers_from_html(sample_teachers);
+        assert_eq!(parsed_teachers.len(), 1);
+        assert_eq!(parsed_teachers[0].id, "alfereva-ov");
+        assert_eq!(parsed_teachers[0].name, "Алферьева О.В.");
     }
 }

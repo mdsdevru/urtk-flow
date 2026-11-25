@@ -363,11 +363,12 @@ function push_schedule_fingerprint(array $schedule): array {
                 'pair' => (int)($l['pairNumber'] ?? 0),
                 'subject' => trim((string)($l['subject'] ?? '')),
                 'teacher' => trim((string)($l['teacher'] ?? '')),
+                'group' => trim((string)($l['groupName'] ?? '')),
                 'room' => trim((string)($l['room'] ?? '')),
-                'time' => trim((string)($l['startTime'] ?? '')),
+                'time' => trim((string)($l['timeStart'] ?? '')),
             ];
         }
-        usort($lessons, static fn($a, $b) => [$a['pair'], $a['subject'], $a['room']] <=> [$b['pair'], $b['subject'], $b['room']]);
+        usort($lessons, static fn($a, $b) => [$a['pair'], $a['group'], $a['subject'], $a['room']] <=> [$b['pair'], $b['group'], $b['subject'], $b['room']]);
         $map[$date] = [
             'weekday' => (string)($day['weekday'] ?? ''),
             'lessons' => $lessons,
@@ -532,24 +533,46 @@ if (!defined('URTK_PUSH_LIB')) {
         }
 
         if ($action === 'subscribe') {
-            $rawGroup = trim((string)($input['group'] ?? ''));
-            $groups = fetch_groups();
-            $matchedGroup = '';
-            $matchedId = '';
-            foreach ($groups as $g) {
-                if (mb_strtolower($g['name'], 'UTF-8') === mb_strtolower($rawGroup, 'UTF-8')) {
-                    $matchedGroup = $g['name'];
-                    $matchedId = $g['id'];
-                    break;
+            $role = ((string)($input['role'] ?? 'student')) === 'teacher' ? 'teacher' : 'student';
+            [$groups, $teachers] = fetch_directory();
+            $targetName = '';
+            $targetId = '';
+
+            if ($role === 'teacher') {
+                $rawTeacher = trim((string)($input['teacher'] ?? ''));
+                foreach ($teachers as $t) {
+                    if (
+                        $t['id'] === $rawTeacher ||
+                        mb_strtolower($t['name'], 'UTF-8') === mb_strtolower($rawTeacher, 'UTF-8') ||
+                        teacher_names_match($t['name'], $rawTeacher)
+                    ) {
+                        $targetName = $t['name'];
+                        $targetId = $t['id'];
+                        break;
+                    }
+                }
+                if ($targetName === '' || $targetId === '') {
+                    http_response_code(400);
+                    echo json_encode(['ok' => false, 'error' => 'Сначала выберите преподавателя'], JSON_UNESCAPED_UNICODE);
+                    exit;
+                }
+            } else {
+                $rawGroup = trim((string)($input['group'] ?? ''));
+                foreach ($groups as $g) {
+                    if (mb_strtolower($g['name'], 'UTF-8') === mb_strtolower($rawGroup, 'UTF-8')) {
+                        $targetName = $g['name'];
+                        $targetId = $g['id'];
+                        break;
+                    }
+                }
+                if ($targetName === '' || $targetId === '') {
+                    http_response_code(400);
+                    echo json_encode(['ok' => false, 'error' => 'Сначала выберите учебную группу'], JSON_UNESCAPED_UNICODE);
+                    exit;
                 }
             }
-            if ($matchedGroup === '' || $matchedId === '') {
-                http_response_code(400);
-                echo json_encode(['ok' => false, 'error' => 'Сначала выберите учебную группу'], JSON_UNESCAPED_UNICODE);
-                exit;
-            }
 
-            push_with_subs(static function (array &$subs, bool &$dirty) use ($subId, $endpoint, $p256dh, $auth, $matchedGroup, $matchedId) {
+            push_with_subs(static function (array &$subs, bool &$dirty) use ($subId, $endpoint, $p256dh, $auth, $role, $targetName, $targetId) {
                 if (!isset($subs[$subId]) && count($subs) >= PUSH_MAX_SUBSCRIPTIONS) {
                     // Evict oldest subscription if global cap reached
                     uasort($subs, static fn($a, $b) => ($a['updatedAt'] ?? 0) <=> ($b['updatedAt'] ?? 0));
@@ -559,8 +582,9 @@ if (!defined('URTK_PUSH_LIB')) {
                     'endpoint' => $endpoint,
                     'p256dh' => $p256dh,
                     'auth' => $auth,
-                    'group' => $matchedGroup,
-                    'groupId' => $matchedId,
+                    'role' => $role,
+                    'group' => $targetName,
+                    'groupId' => $targetId,
                     'updatedAt' => time(),
                     'lastTestAt' => $subs[$subId]['lastTestAt'] ?? 0,
                 ];
@@ -568,16 +592,19 @@ if (!defined('URTK_PUSH_LIB')) {
             });
 
             // Prime baseline snapshot if none exists yet so first real Akademiks change triggers cleanly
-            $snapFile = cache_dir() . '/sched_snap_' . hash('sha256', $matchedId) . '.json';
+            $snapKey = $role . ':' . $targetId;
+            $snapFile = cache_dir() . '/sched_snap_' . hash('sha256', $snapKey) . '.json';
             if (!is_file($snapFile)) {
-                [$sched] = fetch_group_schedule($matchedId);
+                [$sched] = $role === 'teacher'
+                    ? fetch_teacher_schedule($targetId)
+                    : fetch_group_schedule($targetId);
                 if (!empty($sched)) {
                     @file_put_contents($snapFile, json_encode($sched, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
                     @chmod($snapFile, 0600);
                 }
             }
 
-            echo json_encode(['ok' => true, 'group' => $matchedGroup], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok' => true, 'role' => $role, 'target' => $targetName], JSON_UNESCAPED_UNICODE);
             exit;
         }
 

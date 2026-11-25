@@ -1,4 +1,163 @@
-import { BellSlot, DaySchedule } from "../types";
+import { BellSlot, DaySchedule, LessonItem } from "../types";
+
+export interface CompareGroupSource {
+  name: string;
+  isPrimary: boolean;
+  days: DaySchedule[];
+}
+
+export interface CompareSlotEntry {
+  groupName: string;
+  isPrimary: boolean;
+  lessons: LessonItem[];
+}
+
+export interface ComparePairSlot {
+  pairNumber: number;
+  timeRange: string;
+  allFree: boolean;
+  entries: CompareSlotEntry[];
+}
+
+export interface GroupFinishInfo {
+  name: string;
+  isPrimary: boolean;
+  pairCount: number;
+  startTime: string | null;
+  endTime: string | null;
+}
+
+export interface DayComparisonResult {
+  slots: ComparePairSlot[];
+  commonFreePairs: number[];
+  allFreeAfter: string | null;
+  groupFinishes: GroupFinishInfo[];
+}
+
+export function mergeCompareDates(sources: CompareGroupSource[]): { date: string; weekday: string }[] {
+  const byDate = new Map<string, string>();
+  for (const src of sources) {
+    for (const d of src.days) {
+      if (d.date && !byDate.has(d.date)) {
+        byDate.set(d.date, d.weekday);
+      }
+    }
+  }
+  return Array.from(byDate.entries())
+    .map(([date, weekday]) => ({ date, weekday }))
+    .sort((a, b) => {
+      const da = parseDateRu(a.date)?.getTime() ?? 0;
+      const db = parseDateRu(b.date)?.getTime() ?? 0;
+      return da - db;
+    });
+}
+
+export function computeDayComparison(
+  date: string,
+  sources: CompareGroupSource[],
+  bellsMonday: BellSlot[],
+  bellsRegular: BellSlot[]
+): DayComparisonResult {
+  const parsedDate = parseDateRu(date);
+  const isMon = parsedDate ? parsedDate.getDay() === 1 : false;
+  const bells = isMon ? bellsMonday : bellsRegular;
+  const bellTimeByPair = new Map<number, { start: string; end: string }>();
+  for (const b of bells) {
+    const s = (b.part1.split(/[–-]/)[0] || "").trim();
+    const e = (b.part2.split(/[–-]/)[1] || "").trim();
+    if (s && e) bellTimeByPair.set(b.pairNumber, { start: s, end: e });
+  }
+
+  let minPair = 99;
+  let maxPair = 0;
+  const dayByGroup = new Map<string, LessonItem[]>();
+
+  const groupFinishes: GroupFinishInfo[] = sources.map((src) => {
+    const day = src.days.find((d) => d.date === date);
+    const lessons = day?.lessons ?? [];
+    dayByGroup.set(src.name, lessons);
+
+    let startMin: number | null = null;
+    let startStr: string | null = null;
+    let endMin: number | null = null;
+    let endStr: string | null = null;
+
+    for (const l of lessons) {
+      if (l.pairNumber > 0) {
+        if (l.pairNumber < minPair) minPair = l.pairNumber;
+        if (l.pairNumber > maxPair) maxPair = l.pairNumber;
+      }
+      const fallback = bellTimeByPair.get(l.pairNumber);
+      const sText = l.timeStart || fallback?.start || "";
+      const eText = l.timeEnd || fallback?.end || "";
+      const sm = parseMinutesStrict(sText);
+      const em = parseMinutesStrict(eText);
+      if (sm !== null && (startMin === null || sm < startMin)) {
+        startMin = sm;
+        startStr = sText;
+      }
+      if (em !== null && (endMin === null || em > endMin)) {
+        endMin = em;
+        endStr = eText;
+      }
+    }
+
+    return {
+      name: src.name,
+      isPrimary: src.isPrimary,
+      pairCount: lessons.length,
+      startTime: startStr,
+      endTime: endStr,
+    };
+  });
+
+  if (maxPair === 0 || minPair === 99) {
+    return {
+      slots: [],
+      commonFreePairs: [],
+      allFreeAfter: null,
+      groupFinishes,
+    };
+  }
+
+  const slots: ComparePairSlot[] = [];
+  const commonFreePairs: number[] = [];
+
+  for (let p = minPair; p <= maxPair; p++) {
+    const entries: CompareSlotEntry[] = sources.map((src) => ({
+      groupName: src.name,
+      isPrimary: src.isPrimary,
+      lessons: (dayByGroup.get(src.name) ?? []).filter((l) => l.pairNumber === p),
+    }));
+    const allFree = entries.every((e) => e.lessons.length === 0);
+    if (allFree) {
+      commonFreePairs.push(p);
+    }
+    const firstWithTime = entries.flatMap((e) => e.lessons).find((l) => l.timeStart && l.timeEnd);
+    const fallback = bellTimeByPair.get(p);
+    const timeRange = firstWithTime
+      ? `${firstWithTime.timeStart}–${firstWithTime.timeEnd}`
+      : fallback
+      ? `${fallback.start}–${fallback.end}`
+      : "";
+
+    slots.push({ pairNumber: p, timeRange, allFree, entries });
+  }
+
+  let latestEndMin = -1;
+  let allFreeAfter: string | null = null;
+  for (const gf of groupFinishes) {
+    if (gf.endTime) {
+      const m = parseMinutesStrict(gf.endTime);
+      if (m !== null && m > latestEndMin) {
+        latestEndMin = m;
+        allFreeAfter = gf.endTime;
+      }
+    }
+  }
+
+  return { slots, commonFreePairs, allFreeAfter, groupFinishes };
+}
 
 export interface BellStatus {
   text: string;

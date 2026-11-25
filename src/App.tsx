@@ -9,8 +9,10 @@ import {
   CalendarDays,
   Check,
   Clock,
+  Columns2,
   ExternalLink,
   FolderOpen,
+  GraduationCap,
   LayoutGrid,
   MessageSquareText,
   Pin,
@@ -20,6 +22,7 @@ import {
   Settings,
   ShieldCheck,
   Users,
+  X,
 } from "lucide-react";
 import { Titlebar } from "./components/Titlebar";
 import { WidgetView } from "./components/WidgetView";
@@ -32,8 +35,11 @@ import {
   UpdateProgress,
 } from "./types";
 import {
+  CompareGroupSource,
   computeBellStatus,
+  computeDayComparison,
   formatDateRu,
+  mergeCompareDates,
   pickUpcomingDayIdx,
   teacherNamesMatch,
 } from "./utils/schedule";
@@ -42,7 +48,11 @@ type TabId = "schedule" | "consultations" | "materials" | "widget" | "settings";
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",
+  role: "student",
   selectedGroup: "",
+  selectedTeacher: "",
+  multiGroupsEnabled: false,
+  extraGroups: [],
   pinnedTeachers: [],
   hiddenTeachers: [],
   syncIntervalMinutes: 30,
@@ -129,12 +139,17 @@ function MainApp() {
 
   const [consultFilter, setConsultFilter] = useState<"mine" | "active" | "all">("active");
   const [teacherQuery, setTeacherQuery] = useState("");
+  const [profileTeacherQuery, setProfileTeacherQuery] = useState("");
   const [groupQuery, setGroupQuery] = useState("");
+  const [extraGroupQuery, setExtraGroupQuery] = useState("");
   const [courseFilter, setCourseFilter] = useState<string>("all");
   const [selectedDayIdx, setSelectedDayIdx] = useState(0);
+  // "primary" | "compare" | <extraGroupName>
+  const [scheduleViewKey, setScheduleViewKey] = useState<string>("primary");
+  const [compareDate, setCompareDate] = useState<string>("");
 
   // App version & auto-updater state
-  const [appVersion, setAppVersion] = useState("1.3.0");
+  const [appVersion, setAppVersion] = useState("1.4.0");
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -274,9 +289,64 @@ function MainApp() {
   };
 
   const selectGroup = (groupName: string) => {
-    const next = { ...settings, selectedGroup: groupName };
+    const cleanedExtras = settings.extraGroups.filter(
+      (g) => g.toLowerCase() !== groupName.toLowerCase()
+    );
+    const next: AppSettings = {
+      ...settings,
+      role: "student",
+      selectedGroup: groupName,
+      extraGroups: cleanedExtras,
+    };
+    setScheduleViewKey("primary");
     persistSettings(next, true);
     showToast(`Группа ${groupName} выбрана`);
+  };
+
+  const selectTeacherProfile = (teacherName: string) => {
+    const next: AppSettings = {
+      ...settings,
+      role: "teacher",
+      selectedTeacher: teacherName,
+    };
+    setScheduleViewKey("primary");
+    persistSettings(next, true);
+    showToast(`Преподаватель ${teacherName} выбран`);
+  };
+
+  const setProfileRole = (role: "student" | "teacher") => {
+    if (settings.role === role) return;
+    const next: AppSettings = { ...settings, role };
+    setScheduleViewKey("primary");
+    persistSettings(next, true);
+    showToast(role === "teacher" ? "Режим преподавателя" : "Режим студента");
+  };
+
+  const toggleExtraGroup = (groupName: string) => {
+    if (groupName.toLowerCase() === settings.selectedGroup.toLowerCase()) {
+      showToast("Это ваша основная группа");
+      return;
+    }
+    const exists = settings.extraGroups.some(
+      (g) => g.toLowerCase() === groupName.toLowerCase()
+    );
+    if (!exists && settings.extraGroups.length >= 5) {
+      showToast("Можно добавить максимум 5 доп. групп");
+      return;
+    }
+    const extraGroups = exists
+      ? settings.extraGroups.filter((g) => g.toLowerCase() !== groupName.toLowerCase())
+      : [...settings.extraGroups, groupName];
+    const next: AppSettings = {
+      ...settings,
+      multiGroupsEnabled: true,
+      extraGroups,
+    };
+    if (exists && scheduleViewKey.toLowerCase() === groupName.toLowerCase()) {
+      setScheduleViewKey("primary");
+    }
+    persistSettings(next, true);
+    showToast(exists ? `Группа ${groupName} убрана` : `Добавлена группа ${groupName}`);
   };
 
   const toggleWidget = () => {
@@ -309,12 +379,15 @@ function MainApp() {
     setTab("consultations");
   };
 
+  const isTeacherMode = settings.role === "teacher";
+  const activeTargetLabel = isTeacherMode ? settings.selectedTeacher : settings.selectedGroup;
+
   const selectedGroupInfo = useMemo<GroupInfo | undefined>(() => {
-    if (!settings.selectedGroup) return undefined;
+    if (isTeacherMode || !settings.selectedGroup) return undefined;
     return (data?.groups ?? []).find(
       (g) => g.name.toLowerCase() === settings.selectedGroup.toLowerCase()
     );
-  }, [data?.groups, settings.selectedGroup]);
+  }, [data?.groups, settings.selectedGroup, isTeacherMode]);
 
   const bellStatus = useMemo(
     () =>
@@ -323,10 +396,75 @@ function MainApp() {
         data?.schedule ?? [],
         data?.bellsMonday ?? [],
         data?.bellsRegular ?? [],
-        settings.selectedGroup
+        activeTargetLabel
       ),
-    [now, data?.schedule, data?.bellsMonday, data?.bellsRegular, settings.selectedGroup]
+    [now, data?.schedule, data?.bellsMonday, data?.bellsRegular, activeTargetLabel]
   );
+
+  const filteredDirectoryTeachers = useMemo(() => {
+    const list = data?.teachers ?? [];
+    const q = profileTeacherQuery.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((t) => t.name.toLowerCase().includes(q));
+  }, [data?.teachers, profileTeacherQuery]);
+
+  const filteredExtraGroups = useMemo(() => {
+    const list = data?.groups ?? [];
+    const q = extraGroupQuery.trim().toLowerCase();
+    return list.filter((g) => {
+      if (g.name.toLowerCase() === settings.selectedGroup.toLowerCase()) return false;
+      if (!q) return true;
+      return (
+        g.name.toLowerCase().includes(q) ||
+        g.specialtyName.toLowerCase().includes(q) ||
+        g.course.includes(q)
+      );
+    });
+  }, [data?.groups, extraGroupQuery, settings.selectedGroup]);
+
+  const activeExtraGroupNames = useMemo(() => {
+    if (isTeacherMode || !settings.multiGroupsEnabled || !settings.selectedGroup) return [];
+    return settings.extraGroups.filter(
+      (g) => g.toLowerCase() !== settings.selectedGroup.toLowerCase()
+    );
+  }, [isTeacherMode, settings.multiGroupsEnabled, settings.selectedGroup, settings.extraGroups]);
+
+  const compareSources = useMemo<CompareGroupSource[]>(() => {
+    if (!settings.selectedGroup || !activeExtraGroupNames.length) return [];
+    const list: CompareGroupSource[] = [
+      { name: settings.selectedGroup, isPrimary: true, days: data?.schedule ?? [] },
+    ];
+    for (const gName of activeExtraGroupNames) {
+      list.push({
+        name: gName,
+        isPrimary: false,
+        days: data?.extraSchedules?.[gName] ?? [],
+      });
+    }
+    return list;
+  }, [settings.selectedGroup, activeExtraGroupNames, data?.schedule, data?.extraSchedules]);
+
+  const compareDates = useMemo(() => mergeCompareDates(compareSources), [compareSources]);
+
+  const activeCompareDate = useMemo(() => {
+    if (!compareDates.length) return "";
+    if (compareDate && compareDates.some((d) => d.date === compareDate)) {
+      return compareDate;
+    }
+    const todayStr = formatDateRu(now);
+    const todayHit = compareDates.find((d) => d.date === todayStr);
+    return todayHit?.date ?? compareDates[0].date;
+  }, [compareDates, compareDate, now]);
+
+  const dayComparison = useMemo(() => {
+    if (!activeCompareDate || !compareSources.length) return null;
+    return computeDayComparison(
+      activeCompareDate,
+      compareSources,
+      data?.bellsMonday ?? [],
+      data?.bellsRegular ?? []
+    );
+  }, [activeCompareDate, compareSources, data?.bellsMonday, data?.bellsRegular]);
 
   const filteredConsultations = useMemo(() => {
     const list = (data?.consultations ?? []).map((c) => ({
@@ -405,13 +543,28 @@ function MainApp() {
   ];
 
   const themeClass = settings.theme === "light" ? "theme-light" : "theme-dark";
-  const activeDay = data?.schedule?.[selectedDayIdx];
+  const effectiveViewKey =
+    !isTeacherMode &&
+    activeExtraGroupNames.length > 0 &&
+    (scheduleViewKey === "compare" || activeExtraGroupNames.includes(scheduleViewKey))
+      ? scheduleViewKey
+      : "primary";
+
+  const visibleScheduleDays =
+    effectiveViewKey === "primary"
+      ? data?.schedule ?? []
+      : effectiveViewKey === "compare"
+      ? []
+      : data?.extraSchedules?.[effectiveViewKey] ?? [];
+
+  const safeDayIdx = Math.min(selectedDayIdx, Math.max(0, visibleScheduleDays.length - 1));
+  const activeDay = visibleScheduleDays[safeDayIdx];
   const isSelectedDayToday = activeDay?.date === formatDateRu(now);
 
   return (
     <div className={`lg-shell ${themeClass}`}>
       <Titlebar
-        selectedGroup={settings.selectedGroup}
+        selectedGroup={activeTargetLabel}
         syncing={syncing}
         widgetEnabled={settings.widget.enabled}
         theme={settings.theme}
@@ -484,7 +637,7 @@ function MainApp() {
               </button>
             )}
 
-            {/* Group quick card */}
+            {/* Active profile quick card */}
             <button
               onClick={() => setTab("settings")}
               className="w-full text-left p-3 rounded-[15px] transition lg-hover cursor-pointer space-y-1"
@@ -497,11 +650,15 @@ function MainApp() {
                 className="flex items-center justify-between text-[11px]"
                 style={{ color: "var(--text-secondary)" }}
               >
-                <span>Группа</span>
-                <Users className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
+                <span>{isTeacherMode ? "Преподаватель" : "Группа"}</span>
+                {isTeacherMode ? (
+                  <GraduationCap className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
+                ) : (
+                  <Users className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
+                )}
               </div>
               <div className="text-[13.5px] font-semibold truncate">
-                {settings.selectedGroup || "Выбрать группу"}
+                {activeTargetLabel || (isTeacherMode ? "Выбрать ФИО" : "Выбрать группу")}
               </div>
             </button>
           </div>
@@ -534,27 +691,41 @@ function MainApp() {
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <h1 className="text-[22px] font-semibold tracking-[-0.02em]">
-                    Расписание{settings.selectedGroup ? ` · ${settings.selectedGroup}` : ""}
+                    {effectiveViewKey === "compare"
+                      ? "Сравнение и общие окна"
+                      : effectiveViewKey !== "primary"
+                      ? `Расписание · ${effectiveViewKey}`
+                      : activeTargetLabel
+                      ? `Расписание · ${activeTargetLabel}`
+                      : "Расписание"}
                   </h1>
                   <p className="text-[12.5px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
-                    {selectedGroupInfo?.specialtyName
+                    {isTeacherMode
+                      ? "Режим преподавателя · Академикс (akademiks.urtt.ru)"
+                      : effectiveViewKey === "compare"
+                      ? `Сравнение ${compareSources.length} групп по парам и свободным окнам`
+                      : effectiveViewKey !== "primary"
+                      ? "Дополнительная группа · Академикс (akademiks.urtt.ru)"
+                      : selectedGroupInfo?.specialtyName
                       ? `${selectedGroupInfo.course} курс · ${selectedGroupInfo.specialtyName}`
                       : "Академикс (akademiks.urtt.ru)"}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {selectedGroupInfo?.driveUrl && isSafeHttpsUrl(selectedGroupInfo.driveUrl) && (
-                    <button
-                      onClick={() => safeOpenExternal(selectedGroupInfo.driveUrl!)}
-                      className="lg-capsule px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-                      style={{ color: "var(--green)" }}
-                    >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                      <span>Диск группы</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </button>
-                  )}
+                  {!isTeacherMode &&
+                    selectedGroupInfo?.driveUrl &&
+                    isSafeHttpsUrl(selectedGroupInfo.driveUrl) && (
+                      <button
+                        onClick={() => safeOpenExternal(selectedGroupInfo.driveUrl!)}
+                        className="lg-capsule px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                        style={{ color: "var(--green)" }}
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" />
+                        <span>Диск группы</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </button>
+                    )}
                   <button
                     onClick={() => safeOpenExternal("https://akademiks.urtt.ru")}
                     className="lg-capsule px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer"
@@ -591,68 +762,345 @@ function MainApp() {
                 </span>
               </div>
 
-              {!settings.selectedGroup ? (
-                /* Zero-friction First-Run Inline Group Picker */
+              {/* Multi-Group Switcher & Compare Strip */}
+              {!isTeacherMode && activeExtraGroupNames.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setScheduleViewKey("primary")}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition cursor-pointer ${
+                      effectiveViewKey === "primary" ? "lg-accent-pill" : "lg-capsule"
+                    }`}
+                  >
+                    Моя · {settings.selectedGroup}
+                  </button>
+                  {activeExtraGroupNames.map((gName) => (
+                    <button
+                      type="button"
+                      key={gName}
+                      onClick={() => setScheduleViewKey(gName)}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition cursor-pointer ${
+                        effectiveViewKey === gName ? "lg-accent-pill" : "lg-capsule"
+                      }`}
+                    >
+                      {gName}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setScheduleViewKey("compare")}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                      effectiveViewKey === "compare" ? "lg-accent-pill" : "lg-capsule"
+                    }`}
+                  >
+                    <Columns2 className="w-3.5 h-3.5" />
+                    <span>Сравнение и окна</span>
+                  </button>
+                </div>
+              )}
+
+              {!activeTargetLabel ? (
+                /* Zero-friction First-Run Inline Group / Teacher Picker */
                 <div className="lg-card p-5 space-y-3.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <div className="text-[15px] font-semibold">Выберите вашу группу УРТК</div>
+                      <div className="text-[15px] font-semibold">
+                        {isTeacherMode
+                          ? "Выберите преподавателя УРТК"
+                          : "Выберите вашу группу УРТК"}
+                      </div>
                       <div className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
-                        Расписание пар, папка ДО и консультации ваших преподавателей подгрузятся сразу
+                        {isTeacherMode
+                          ? "Загрузятся личные пары с указанием групп, аудиторий и ваших консультаций"
+                          : "Расписание пар, папка ДО и консультации ваших преподавателей подгрузятся сразу"}
                       </div>
                     </div>
-                    <div className="lg-capsule rounded-full p-1 flex items-center text-[11.5px]">
-                      {[
-                        ["all", "Все"],
-                        ["1", "1 курс"],
-                        ["2", "2 курс"],
-                        ["3", "3 курс"],
-                        ["4", "4 курс"],
-                      ].map(([cid, clabel]) => (
+                    <div className="flex items-center gap-2">
+                      <div className="lg-capsule rounded-full p-0.5 flex items-center text-[11.5px]">
                         <button
-                          key={cid}
-                          onClick={() => setCourseFilter(cid)}
+                          type="button"
+                          onClick={() => setProfileRole("student")}
                           className={`px-2.5 py-1 rounded-full font-medium cursor-pointer ${
-                            courseFilter === cid ? "lg-accent-pill" : ""
+                            !isTeacherMode ? "lg-accent-pill" : ""
                           }`}
-                          style={courseFilter === cid ? undefined : { color: "var(--text-secondary)" }}
+                          style={!isTeacherMode ? undefined : { color: "var(--text-secondary)" }}
                         >
-                          {clabel}
+                          Студент
                         </button>
-                      ))}
+                        <button
+                          type="button"
+                          onClick={() => setProfileRole("teacher")}
+                          className={`px-2.5 py-1 rounded-full font-medium cursor-pointer ${
+                            isTeacherMode ? "lg-accent-pill" : ""
+                          }`}
+                          style={isTeacherMode ? undefined : { color: "var(--text-secondary)" }}
+                        >
+                          Преподаватель
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="relative">
-                    <Search
-                      className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2"
-                      style={{ color: "var(--text-tertiary)" }}
-                    />
-                    <input
-                      value={groupQuery}
-                      onChange={(e) => setGroupQuery(e.target.value)}
-                      placeholder="Найти группу или специальность (например, ИсР-101, Би-131)..."
-                      className="lg-input w-full pl-10 pr-4 py-2 rounded-full text-[13px]"
-                    />
-                  </div>
+                  {isTeacherMode ? (
+                    <>
+                      <div className="relative">
+                        <Search
+                          className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2"
+                          style={{ color: "var(--text-tertiary)" }}
+                        />
+                        <input
+                          value={profileTeacherQuery}
+                          onChange={(e) => setProfileTeacherQuery(e.target.value)}
+                          placeholder="Найти преподавателя по фамилии..."
+                          className="lg-input w-full pl-10 pr-4 py-2 rounded-full text-[13px]"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto pt-0.5">
+                        {filteredDirectoryTeachers.map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => selectTeacherProfile(t.name)}
+                            className="px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer lg-capsule"
+                          >
+                            {t.name}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="relative flex-1 min-w-[200px]">
+                          <Search
+                            className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2"
+                            style={{ color: "var(--text-tertiary)" }}
+                          />
+                          <input
+                            value={groupQuery}
+                            onChange={(e) => setGroupQuery(e.target.value)}
+                            placeholder="Найти группу или специальность (например, ИсР-101, Э-171)..."
+                            className="lg-input w-full pl-10 pr-4 py-2 rounded-full text-[13px]"
+                          />
+                        </div>
+                        <div className="lg-capsule rounded-full p-1 flex items-center text-[11.5px]">
+                          {[
+                            ["all", "Все"],
+                            ["1", "1 курс"],
+                            ["2", "2 курс"],
+                            ["3", "3 курс"],
+                            ["4", "4 курс"],
+                          ].map(([cid, clabel]) => (
+                            <button
+                              key={cid}
+                              onClick={() => setCourseFilter(cid)}
+                              className={`px-2.5 py-1 rounded-full font-medium cursor-pointer ${
+                                courseFilter === cid ? "lg-accent-pill" : ""
+                              }`}
+                              style={courseFilter === cid ? undefined : { color: "var(--text-secondary)" }}
+                            >
+                              {clabel}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
 
-                  <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pt-0.5">
-                    {filteredGroups.map((g) => (
-                      <button
-                        key={g.name}
-                        onClick={() => selectGroup(g.name)}
-                        className="px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer lg-capsule"
-                      >
-                        {g.name}
-                      </button>
-                    ))}
-                  </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pt-0.5">
+                        {filteredGroups.map((g) => (
+                          <button
+                            key={g.name}
+                            onClick={() => selectGroup(g.name)}
+                            className="px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer lg-capsule"
+                          >
+                            {g.name}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
-              ) : data?.schedule && data.schedule.length > 0 ? (
+              ) : effectiveViewKey === "compare" ? (
+                /* Multi-Group Comparison & Shared Windows View */
                 <>
                   <div className="flex gap-2 overflow-x-auto pb-1">
-                    {data.schedule.map((d, idx) => {
-                      const active = selectedDayIdx === idx;
+                    {compareDates.map((d) => {
+                      const active = activeCompareDate === d.date;
+                      const isToday = d.date === formatDateRu(now);
+                      return (
+                        <button
+                          key={d.date}
+                          onClick={() => setCompareDate(d.date)}
+                          className={`px-4 py-2 rounded-[16px] text-xs font-medium shrink-0 transition cursor-pointer ${
+                            active ? "lg-accent-pill" : "lg-capsule"
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>{d.weekday}</span>
+                            {isToday && (
+                              <span
+                                className="w-1.5 h-1.5 rounded-full"
+                                style={{ background: active ? "#fff" : "var(--green)" }}
+                              />
+                            )}
+                          </div>
+                          <div className="text-[10.5px] tabular opacity-75 mt-0.5">{d.date}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {dayComparison && (
+                    <div className="space-y-3">
+                      <div className="lg-card p-4 space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-[13px] font-semibold">
+                            {dayComparison.commonFreePairs.length > 0
+                              ? `Общие окна: ${dayComparison.commonFreePairs
+                                  .map((p) => `${p} пара`)
+                                  .join(", ")}`
+                              : dayComparison.slots.length > 0
+                              ? "Общих окон между парами в этот день нет"
+                              : "В выбранный день пар нет"}
+                          </div>
+                          {dayComparison.allFreeAfter && (
+                            <span
+                              className="px-2.5 py-1 rounded-full text-[11px] font-semibold tabular"
+                              style={{
+                                background: "rgba(48, 209, 88, 0.16)",
+                                color: "var(--green)",
+                              }}
+                            >
+                              Все свободны после {dayComparison.allFreeAfter}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {dayComparison.groupFinishes.map((gf) => (
+                            <span
+                              key={gf.name}
+                              className="px-2.5 py-1 rounded-full text-[11px] tabular"
+                              style={{
+                                background: "var(--row-bg)",
+                                border: "1px solid var(--border-subtle)",
+                                color: "var(--text-secondary)",
+                              }}
+                            >
+                              <strong style={{ color: "var(--text-primary)" }}>{gf.name}</strong>:{" "}
+                              {gf.pairCount > 0
+                                ? `${gf.pairCount} пар (${gf.startTime ?? ""}–${gf.endTime ?? ""})`
+                                : "пар нет"}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        {dayComparison.slots.map((slot) => (
+                          <div
+                            key={slot.pairNumber}
+                            className="lg-card p-4 space-y-2.5"
+                            style={
+                              slot.allFree
+                                ? { borderColor: "rgba(48, 209, 88, 0.4)" }
+                                : undefined
+                            }
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold tabular"
+                                  style={{
+                                    background: slot.allFree
+                                      ? "rgba(48, 209, 88, 0.18)"
+                                      : "var(--accent-soft)",
+                                    color: slot.allFree ? "var(--green)" : "var(--accent-text)",
+                                  }}
+                                >
+                                  {slot.pairNumber} пара
+                                </span>
+                                {slot.timeRange && (
+                                  <span
+                                    className="text-xs tabular"
+                                    style={{ color: "var(--text-secondary)" }}
+                                  >
+                                    {slot.timeRange}
+                                  </span>
+                                )}
+                              </div>
+                              {slot.allFree && (
+                                <span
+                                  className="px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold"
+                                  style={{
+                                    background: "rgba(48, 209, 88, 0.16)",
+                                    color: "var(--green)",
+                                  }}
+                                >
+                                  Общее окно
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {slot.entries.map((entry) => {
+                                const free = entry.lessons.length === 0;
+                                return (
+                                  <div
+                                    key={entry.groupName}
+                                    className="flex items-center justify-between gap-3 px-3 py-2 rounded-[13px]"
+                                    style={{ background: "var(--row-bg)" }}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <span
+                                        className="px-2 py-0.5 rounded-full text-[11px] font-semibold shrink-0"
+                                        style={{
+                                          background: entry.isPrimary
+                                            ? "var(--accent-soft)"
+                                            : "var(--pill-bg)",
+                                          color: entry.isPrimary
+                                            ? "var(--accent-text)"
+                                            : "var(--text-primary)",
+                                        }}
+                                      >
+                                        {entry.groupName}
+                                      </span>
+                                      {free ? (
+                                        <span
+                                          className="text-xs font-medium"
+                                          style={{ color: "var(--green)" }}
+                                        >
+                                          Свободно (окно)
+                                        </span>
+                                      ) : (
+                                        <span className="text-xs font-medium truncate">
+                                          {entry.lessons.map((l) => l.subject).join(" / ")}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {!free && (
+                                      <span
+                                        className="text-[11px] font-semibold tabular shrink-0"
+                                        style={{ color: "var(--text-secondary)" }}
+                                      >
+                                        {entry.lessons
+                                          .map((l) => l.room || "—")
+                                          .filter((v, i, a) => a.indexOf(v) === i)
+                                          .join(", ")}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : visibleScheduleDays.length > 0 ? (
+                <>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {visibleScheduleDays.map((d, idx) => {
+                      const active = safeDayIdx === idx;
                       const isToday = d.date === formatDateRu(now);
                       return (
                         <button
@@ -680,12 +1128,17 @@ function MainApp() {
                   <div className="space-y-2.5">
                     {(activeDay?.lessons ?? []).map((lesson, idx) => {
                       const isRunning =
-                        isSelectedDayToday && bellStatus.activePairNumber === lesson.pairNumber;
+                        effectiveViewKey === "primary" &&
+                        isSelectedDayToday &&
+                        bellStatus.activePairNumber === lesson.pairNumber;
                       const isNext =
+                        effectiveViewKey === "primary" &&
                         isSelectedDayToday &&
                         !isRunning &&
                         bellStatus.nextPairNumber === lesson.pairNumber;
-                      const teacherConsult = findConsultationForTeacher(lesson.teacher);
+                      const teacherConsult = !isTeacherMode
+                        ? findConsultationForTeacher(lesson.teacher)
+                        : undefined;
 
                       return (
                         <div
@@ -714,6 +1167,17 @@ function MainApp() {
                                 <span className="font-semibold text-[13.5px] truncate">
                                   {lesson.subject}
                                 </span>
+                                {isTeacherMode && lesson.groupName && (
+                                  <span
+                                    className="px-2 py-0.5 rounded-full text-[10.5px] font-semibold"
+                                    style={{
+                                      background: "var(--accent-soft)",
+                                      color: "var(--accent-text)",
+                                    }}
+                                  >
+                                    {lesson.groupName}
+                                  </span>
+                                )}
                                 {isRunning && (
                                   <span
                                     className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
@@ -742,7 +1206,7 @@ function MainApp() {
                                 style={{ color: "var(--text-secondary)" }}
                               >
                                 {lesson.timeStart}–{lesson.timeEnd}
-                                {lesson.teacher ? ` · ${lesson.teacher}` : ""}
+                                {!isTeacherMode && lesson.teacher ? ` · ${lesson.teacher}` : ""}
                               </div>
                             </div>
                           </div>
@@ -781,7 +1245,13 @@ function MainApp() {
               ) : (
                 <div className="lg-card p-10 text-center space-y-2">
                   <p className="text-sm font-medium">
-                    Расписание для группы {settings.selectedGroup} пока не опубликовано
+                    Расписание для{" "}
+                    {effectiveViewKey !== "primary"
+                      ? `группы ${effectiveViewKey}`
+                      : isTeacherMode
+                      ? `преподавателя ${settings.selectedTeacher}`
+                      : `группы ${settings.selectedGroup}`}{" "}
+                    пока не опубликовано
                   </p>
                   <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
                     Попробуйте обновить данные позже или проверьте расписание в «Академиксе».
@@ -1191,72 +1661,237 @@ function MainApp() {
                 </p>
               </div>
 
-              {/* Group selection */}
-              <div className="lg-card p-5 space-y-3">
+              {/* Profile role + Group / Teacher selection */}
+              <div className="lg-card p-5 space-y-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-[14px] font-semibold">
-                    <Users className="w-4 h-4" style={{ color: "var(--accent)" }} />
-                    <span>Учебная группа УРТК</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {settings.selectedGroup && (
-                      <span
-                        className="px-2.5 py-0.5 rounded-full text-xs font-medium"
-                        style={{
-                          background: "var(--accent-soft)",
-                          color: "var(--accent-text)",
-                        }}
-                      >
-                        {settings.selectedGroup}
-                      </span>
+                    {isTeacherMode ? (
+                      <GraduationCap className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                    ) : (
+                      <Users className="w-4 h-4" style={{ color: "var(--accent)" }} />
                     )}
-                    <div className="lg-capsule rounded-full p-0.5 flex items-center text-[11px]">
-                      {[
-                        ["all", "Все"],
-                        ["1", "1 к."],
-                        ["2", "2 к."],
-                        ["3", "3 к."],
-                        ["4", "4 к."],
-                      ].map(([cid, clabel]) => (
-                        <button
-                          key={cid}
-                          onClick={() => setCourseFilter(cid)}
-                          className={`px-2 py-0.5 rounded-full font-medium cursor-pointer ${
-                            courseFilter === cid ? "lg-accent-pill" : ""
-                          }`}
-                          style={courseFilter === cid ? undefined : { color: "var(--text-secondary)" }}
-                        >
-                          {clabel}
-                        </button>
-                      ))}
-                    </div>
+                    <span>{isTeacherMode ? "Преподаватель УРТК" : "Учебная группа УРТК"}</span>
+                  </div>
+
+                  <div className="lg-capsule rounded-full p-0.5 flex items-center text-[11.5px]">
+                    <button
+                      type="button"
+                      onClick={() => setProfileRole("student")}
+                      className={`px-3 py-1 rounded-full font-medium cursor-pointer ${
+                        !isTeacherMode ? "lg-accent-pill" : ""
+                      }`}
+                      style={!isTeacherMode ? undefined : { color: "var(--text-secondary)" }}
+                    >
+                      Студент
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProfileRole("teacher")}
+                      className={`px-3 py-1 rounded-full font-medium cursor-pointer ${
+                        isTeacherMode ? "lg-accent-pill" : ""
+                      }`}
+                      style={isTeacherMode ? undefined : { color: "var(--text-secondary)" }}
+                    >
+                      Преподаватель
+                    </button>
                   </div>
                 </div>
 
-                <input
-                  value={groupQuery}
-                  onChange={(e) => setGroupQuery(e.target.value)}
-                  placeholder="Поиск группы (например, ИсР-101, Би-131)..."
-                  className="lg-input w-full px-4 py-2 rounded-full text-[13px]"
-                />
+                {isTeacherMode ? (
+                  <>
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span style={{ color: "var(--text-secondary)" }}>
+                        Выберите ФИО — в «Расписании» отобразятся ваши пары с группами
+                      </span>
+                      {settings.selectedTeacher && (
+                        <span
+                          className="px-2.5 py-0.5 rounded-full font-medium shrink-0"
+                          style={{
+                            background: "var(--accent-soft)",
+                            color: "var(--accent-text)",
+                          }}
+                        >
+                          {settings.selectedTeacher}
+                        </span>
+                      )}
+                    </div>
 
-                <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pt-1">
-                  {filteredGroups.map((g) => {
-                    const active = g.name === settings.selectedGroup;
-                    return (
-                      <button
-                        key={g.name}
-                        onClick={() => selectGroup(g.name)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer ${
-                          active ? "lg-accent-pill" : "lg-capsule"
-                        }`}
-                      >
-                        {g.name}
-                      </button>
-                    );
-                  })}
-                </div>
+                    <input
+                      value={profileTeacherQuery}
+                      onChange={(e) => setProfileTeacherQuery(e.target.value)}
+                      placeholder="Поиск по фамилии преподавателя..."
+                      className="lg-input w-full px-4 py-2 rounded-full text-[13px]"
+                    />
+
+                    <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pt-1">
+                      {filteredDirectoryTeachers.map((t) => {
+                        const active =
+                          t.name.toLowerCase() === settings.selectedTeacher.toLowerCase();
+                        return (
+                          <button
+                            key={t.id}
+                            onClick={() => selectTeacherProfile(t.name)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer ${
+                              active ? "lg-accent-pill" : "lg-capsule"
+                            }`}
+                          >
+                            {t.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      {settings.selectedGroup ? (
+                        <span
+                          className="px-2.5 py-0.5 rounded-full text-xs font-medium"
+                          style={{
+                            background: "var(--accent-soft)",
+                            color: "var(--accent-text)",
+                          }}
+                        >
+                          Основная: {settings.selectedGroup}
+                        </span>
+                      ) : (
+                        <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                          Выберите основную учебную группу
+                        </span>
+                      )}
+                      <div className="lg-capsule rounded-full p-0.5 flex items-center text-[11px]">
+                        {[
+                          ["all", "Все"],
+                          ["1", "1 к."],
+                          ["2", "2 к."],
+                          ["3", "3 к."],
+                          ["4", "4 к."],
+                        ].map(([cid, clabel]) => (
+                          <button
+                            key={cid}
+                            onClick={() => setCourseFilter(cid)}
+                            className={`px-2 py-0.5 rounded-full font-medium cursor-pointer ${
+                              courseFilter === cid ? "lg-accent-pill" : ""
+                            }`}
+                            style={courseFilter === cid ? undefined : { color: "var(--text-secondary)" }}
+                          >
+                            {clabel}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <input
+                      value={groupQuery}
+                      onChange={(e) => setGroupQuery(e.target.value)}
+                      placeholder="Поиск группы (например, ИсР-101, Би-131)..."
+                      className="lg-input w-full px-4 py-2 rounded-full text-[13px]"
+                    />
+
+                    <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pt-1">
+                      {filteredGroups.map((g) => {
+                        const active = g.name === settings.selectedGroup;
+                        return (
+                          <button
+                            key={g.name}
+                            onClick={() => selectGroup(g.name)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer ${
+                              active ? "lg-accent-pill" : "lg-capsule"
+                            }`}
+                          >
+                            {g.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
+
+              {/* Multi-groups (Student mode only) */}
+              {!isTeacherMode && (
+                <div className="lg-card p-5 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-[14px] font-semibold">
+                        <Columns2 className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                        <span>Доп. группы</span>
+                        {settings.multiGroupsEnabled && settings.extraGroups.length > 0 && (
+                          <span
+                            className="px-2 py-0.5 rounded-full text-[11px] font-semibold tabular"
+                            style={{
+                              background: "var(--accent-soft)",
+                              color: "var(--accent-text)",
+                            }}
+                          >
+                            {settings.extraGroups.length} / 5
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                        Быстрое переключение на расписание друзей и поиск общих окон в разделе «Расписание»
+                      </p>
+                    </div>
+                    <GlassSwitch
+                      checked={settings.multiGroupsEnabled}
+                      onChange={(val) => {
+                        if (!val) setScheduleViewKey("primary");
+                        persistSettings(
+                          { ...settings, multiGroupsEnabled: val },
+                          val && settings.extraGroups.length > 0
+                        );
+                      }}
+                    />
+                  </div>
+
+                  {settings.multiGroupsEnabled && (
+                    <div className="space-y-2.5 pt-1">
+                      {settings.extraGroups.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {settings.extraGroups.map((gName) => (
+                            <button
+                              key={gName}
+                              type="button"
+                              onClick={() => toggleExtraGroup(gName)}
+                              className="lg-accent-pill px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <span>{gName}</span>
+                              <X className="w-3 h-3" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <input
+                        value={extraGroupQuery}
+                        onChange={(e) => setExtraGroupQuery(e.target.value)}
+                        placeholder="Добавить группу друзей (до 5 групп)..."
+                        className="lg-input w-full px-4 py-2 rounded-full text-[13px]"
+                      />
+
+                      <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pt-0.5">
+                        {filteredExtraGroups.map((g) => {
+                          const picked = settings.extraGroups.some(
+                            (x) => x.toLowerCase() === g.name.toLowerCase()
+                          );
+                          return (
+                            <button
+                              key={g.name}
+                              type="button"
+                              onClick={() => toggleExtraGroup(g.name)}
+                              className={`px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer ${
+                                picked ? "lg-accent-pill" : "lg-capsule"
+                              }`}
+                            >
+                              {g.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Notifications */}
               <div className="lg-card p-5 space-y-3">

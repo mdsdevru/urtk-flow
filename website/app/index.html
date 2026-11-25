@@ -21,7 +21,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/app/icons/icon-180.png" />
     <link rel="icon" type="image/png" href="/app/icons/icon-192.png" />
     <link rel="manifest" href="/app/manifest.webmanifest" />
-    <link rel="stylesheet" href="/app/app.css?v=10" />
+    <link rel="stylesheet" href="/app/app.css?v=11" />
   </head>
   <body class="theme-dark">
     <div class="ios-shell">
@@ -91,6 +91,7 @@
 
           <div id="sched-diff-slot"></div>
           <div id="sched-drive-slot"></div>
+          <div id="multi-group-bar" class="multi-bar hidden"></div>
           <div class="day-strip" id="day-strip"></div>
           <div class="card-stack" id="lesson-list"></div>
 
@@ -218,8 +219,12 @@
 
           <div class="glass-card settings-card">
             <div class="sc-head">
-              <span>Учебная группа УРТК</span>
+              <span id="profile-card-title">Учебная группа УРТК</span>
               <span class="badge-blue tabular" id="settings-cur-group">Не выбрана</span>
+            </div>
+            <div class="segmented" id="role-seg">
+              <button type="button" class="seg-btn active" data-setrole="student">Студент</button>
+              <button type="button" class="seg-btn" data-setrole="teacher">Преподаватель</button>
             </div>
             <input
               type="search"
@@ -229,6 +234,38 @@
               autocomplete="off"
             />
             <div class="group-chips" id="group-chips"></div>
+          </div>
+
+          <div class="glass-card settings-card" id="extra-groups-card">
+            <div class="sc-head">
+              <div class="sc-head-left">
+                <span>Доп. группы</span>
+                <span class="badge-blue tabular hidden" id="extra-groups-count">0 / 5</span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked="false"
+                id="btn-multi-toggle"
+                class="ios-switch"
+              >
+                <span class="ios-switch-thumb"></span>
+              </button>
+            </div>
+            <p class="sc-note">
+              Быстрое переключение на расписание друзей и поиск общих окон в разделе «Пары» (до 5 групп).
+            </p>
+            <div id="extra-groups-body" class="extra-body hidden">
+              <div class="group-chips" id="extra-selected-chips"></div>
+              <input
+                type="search"
+                id="extra-group-search"
+                class="glass-input compact"
+                placeholder="Добавить группу друзей..."
+                autocomplete="off"
+              />
+              <div class="group-chips" id="extra-group-chips"></div>
+            </div>
           </div>
 
           <div class="glass-card settings-card" id="push-settings-card">
@@ -311,6 +348,6 @@
       <div class="toast hidden" id="toast"></div>
     </div>
 
-    <script src="/app/app.js?v=10"></script>
+    <script src="/app/app.js?v=11"></script>
   </body>
 </html>

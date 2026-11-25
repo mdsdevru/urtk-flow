@@ -1,10 +1,10 @@
 {
-    "version":  "1.3.1",
+    "version":  "1.4.0",
     "publishedAt":  "2026-11-25",
-    "notes":  "Исправлено закрепление преподавателей в консультациях (закреплённые теперь всегда поднимаются на самый верх с бейджем) и аккуратно оформлена кнопка перехода к консультации в расписании.",
-    "downloadUrl":  "https://flow.mdsdev.ru/downloads/URTK-Flow-Setup-1.3.1.exe",
-    "sha256":  "71fa1397865d11afd78add61b05015d90979a0c2eac66628c67530dfee5d5aa1",
-    "sizeBytes":  3723644,
-    "signature":  "4801db92ebb0c6fda511a6e2f4aa4aaed3a1654c786629312eb7e8cb97fe1ab8fa0783447c54bccdb37915adb7468aec6dc9c29cdfe26885348ee7bb65f2680a",
-    "signatureV2":  "10c79a60e62bb1681cc8bf9380bbb90c4a4ba7968c5c5573e826b97b35ab16b3871733e0ff908dbbfb0bd66a621f8b2ab62602f4a6558c213229e25c6115c70a"
+    "notes":  "Режим «Преподаватель» (92 преподавателя УРТК с отображением групп на парах), раздел «Доп. группы» (до 5 групп друзей) и экран «Сравнение и окна» для поиска общих перерывов.",
+    "downloadUrl":  "https://flow.mdsdev.ru/downloads/URTK-Flow-Setup-1.4.0.exe",
+    "sha256":  "899bde0b28ec0d5f48887a142aecd6284f3c88e16a70cb4a0ed927f896e81d8c",
+    "sizeBytes":  3752394,
+    "signature":  "e9b73a7f63791e9c2c4558fc1bb518b276128f1b85d7d1e21dd4c0984c9085e3f95b7a017c6363e8163078097f55ae563fc4c3f9f298aec7e04a97db4f588402",
+    "signatureV2":  "0f561855000794be120f822301b8e0e77cf3e20862cb22b25e83545c24c38b31c47ff74ee8e06a3464485e95a7ebb43862fe3a3453bb8aa3c8a59f4af4c40d0b"
 }

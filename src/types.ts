@@ -7,6 +7,11 @@ export interface GroupInfo {
   driveUrl?: string | null;
 }
 
+export interface TeacherInfo {
+  id: string;
+  name: string;
+}
+
 export interface LessonItem {
   pairNumber: number;
   timeStart: string;
@@ -15,6 +20,7 @@ export interface LessonItem {
   teacher: string;
   room: string;
   lessonType?: string | null;
+  groupName?: string | null;
 }
 
 export interface DaySchedule {
@@ -68,7 +74,11 @@ export interface NotificationSettings {
 
 export interface AppSettings {
   theme: "dark" | "light";
+  role: "student" | "teacher";
   selectedGroup: string;
+  selectedTeacher: string;
+  multiGroupsEnabled: boolean;
+  extraGroups: string[];
   pinnedTeachers: string[];
   hiddenTeachers: string[];
   syncIntervalMinutes: number;
@@ -110,7 +120,9 @@ export interface SyncPayload {
   lastSyncedAt: string;
   consultationWeekRange: string;
   groups: GroupInfo[];
+  teachers: TeacherInfo[];
   schedule: DaySchedule[];
+  extraSchedules: Record<string, DaySchedule[]>;
   groupTeachers: string[];
   consultations: TeacherConsultations[];
   bellsMonday: BellSlot[];
