@@ -1,9 +1,9 @@
-const CACHE_NAME = "urtk-flow-pwa-v9";
+const CACHE_NAME = "urtk-flow-pwa-v10";
 const SHELL_ASSETS = [
   "/app/",
   "/app/index.html",
-  "/app/app.css?v=9",
-  "/app/app.js?v=9",
+  "/app/app.css?v=10",
+  "/app/app.js?v=10",
   "/app/manifest.webmanifest",
   "/app/icons/icon-180.png",
   "/app/icons/icon-192.png",
@@ -29,6 +29,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET") return;
+  if (url.pathname.endsWith("/push.php")) return;
 
   // Network-first for API requests and HTML document so updates apply immediately
   if (
@@ -64,6 +65,56 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(() => cached);
       return cached || network;
+    })
+  );
+});
+
+self.addEventListener("push", (event) => {
+  let payload = {
+    title: "URTK Flow",
+    body: "В расписании вашей группы появились изменения.",
+    url: "/app/",
+    tag: "urtk-flow-update"
+  };
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json();
+      if (parsed && typeof parsed === "object") {
+        payload = Object.assign(payload, parsed);
+      }
+    } catch {
+      const txt = event.data.text();
+      if (txt) payload.body = txt;
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/app/icons/icon-192.png",
+      badge: "/app/icons/icon-192.png",
+      tag: payload.tag || "urtk-flow-update",
+      renotify: true,
+      data: { url: payload.url || "/app/" }
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/app/";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (client.url.includes("/app/") && "focus" in client) {
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
     })
   );
 });

@@ -39,6 +39,16 @@ AddType application/manifest+json .webmanifest
     Header set Service-Worker-Allowed "/app/"
 </Files>
 
+<Files "push_cron.php">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</Files>
+
 <Files "manifest.webmanifest">
     Header set Cache-Control "no-cache, must-revalidate"
 </Files>

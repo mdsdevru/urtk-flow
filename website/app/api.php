@@ -1,18 +1,20 @@
 <?php
 declare(strict_types=1);
 
-header('Content-Type: application/json; charset=utf-8');
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('Referrer-Policy: strict-origin-when-cross-origin');
+if (!defined('URTK_API_LIB')) {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
 
-$reqMethod = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
-if ($reqMethod !== 'GET' && $reqMethod !== 'HEAD') {
-    http_response_code(405);
-    header('Allow: GET, HEAD');
-    echo json_encode(['ok' => false, 'error' => 'Method Not Allowed'], JSON_UNESCAPED_UNICODE);
-    exit;
+    $reqMethod = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    if ($reqMethod !== 'GET' && $reqMethod !== 'HEAD') {
+        http_response_code(405);
+        header('Allow: GET, HEAD');
+        echo json_encode(['ok' => false, 'error' => 'Method Not Allowed'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 }
 
 date_default_timezone_set('Asia/Yekaterinburg');
@@ -673,45 +675,47 @@ function bells_data(): array {
     ];
 }
 
-try {
-    enforce_rate_limit();
-    $rawGroup = is_string($_GET['group'] ?? null) ? $_GET['group'] : '';
-    $selectedGroup = trim(preg_replace('/[\x00-\x1F\x7F]/u', '', $rawGroup) ?? '');
-    if (mb_strlen($selectedGroup, 'UTF-8') > 40) {
-        $selectedGroup = '';
-    }
-    $groups = fetch_groups();
+if (!defined('URTK_API_LIB')) {
+    try {
+        enforce_rate_limit();
+        $rawGroup = is_string($_GET['group'] ?? null) ? $_GET['group'] : '';
+        $selectedGroup = trim(preg_replace('/[\x00-\x1F\x7F]/u', '', $rawGroup) ?? '');
+        if (mb_strlen($selectedGroup, 'UTF-8') > 40) {
+            $selectedGroup = '';
+        }
+        $groups = fetch_groups();
 
-    // Strict allowlist: only query Akademiks for real groups from the official URTK list
-    $groupId = '';
-    $matchedGroup = '';
-    if ($selectedGroup !== '') {
-        foreach ($groups as $g) {
-            if (mb_strtolower($g['name'], 'UTF-8') === mb_strtolower($selectedGroup, 'UTF-8') || $g['id'] === $selectedGroup) {
-                $groupId = $g['id'];
-                $matchedGroup = $g['name'];
-                break;
+        // Strict allowlist: only query Akademiks for real groups from the official URTK list
+        $groupId = '';
+        $matchedGroup = '';
+        if ($selectedGroup !== '') {
+            foreach ($groups as $g) {
+                if (mb_strtolower($g['name'], 'UTF-8') === mb_strtolower($selectedGroup, 'UTF-8') || $g['id'] === $selectedGroup) {
+                    $groupId = $g['id'];
+                    $matchedGroup = $g['name'];
+                    break;
+                }
             }
         }
+
+        [$schedule, $groupTeachers] = $groupId !== '' ? fetch_group_schedule($groupId) : [[], []];
+        [$weekRange, $consultations] = fetch_consultations($groupTeachers);
+
+        $bells = bells_data();
+        echo json_encode([
+            'ok' => true,
+            'lastSyncedAt' => date('H:i'),
+            'selectedGroup' => $matchedGroup,
+            'consultationWeekRange' => $weekRange,
+            'groups' => $groups,
+            'schedule' => $schedule,
+            'groupTeachers' => $groupTeachers,
+            'consultations' => $consultations,
+            'bellsMonday' => $bells['monday'],
+            'bellsRegular' => $bells['regular'],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    } catch (Throwable) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'Временная ошибка при обновлении данных'], JSON_UNESCAPED_UNICODE);
     }
-
-    [$schedule, $groupTeachers] = $groupId !== '' ? fetch_group_schedule($groupId) : [[], []];
-    [$weekRange, $consultations] = fetch_consultations($groupTeachers);
-
-    $bells = bells_data();
-    echo json_encode([
-        'ok' => true,
-        'lastSyncedAt' => date('H:i'),
-        'selectedGroup' => $matchedGroup,
-        'consultationWeekRange' => $weekRange,
-        'groups' => $groups,
-        'schedule' => $schedule,
-        'groupTeachers' => $groupTeachers,
-        'consultations' => $consultations,
-        'bellsMonday' => $bells['monday'],
-        'bellsRegular' => $bells['regular'],
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-} catch (Throwable) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => 'Временная ошибка при обновлении данных'], JSON_UNESCAPED_UNICODE);
 }

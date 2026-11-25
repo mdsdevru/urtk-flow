@@ -1,6 +1,8 @@
 User-agent: *
 Allow: /
 Disallow: /app/api.php
+Disallow: /app/push.php
+Disallow: /app/push_cron.php
 Disallow: /updates/
 
 Host: https://flow.mdsdev.ru

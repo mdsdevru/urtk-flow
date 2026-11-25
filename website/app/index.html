@@ -21,7 +21,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/app/icons/icon-180.png" />
     <link rel="icon" type="image/png" href="/app/icons/icon-192.png" />
     <link rel="manifest" href="/app/manifest.webmanifest" />
-    <link rel="stylesheet" href="/app/app.css?v=9" />
+    <link rel="stylesheet" href="/app/app.css?v=10" />
   </head>
   <body class="theme-dark">
     <div class="ios-shell">
@@ -89,6 +89,7 @@
             </div>
           </div>
 
+          <div id="sched-diff-slot"></div>
           <div id="sched-drive-slot"></div>
           <div class="day-strip" id="day-strip"></div>
           <div class="card-stack" id="lesson-list"></div>
@@ -230,6 +231,24 @@
             <div class="group-chips" id="group-chips"></div>
           </div>
 
+          <div class="glass-card settings-card" id="push-settings-card">
+            <div class="sc-head">
+              <span>Уведомления о парах</span>
+              <span class="push-pill" id="push-status-pill">Выключены</span>
+            </div>
+            <p class="sc-note" id="push-note">
+              Присылать пуш-уведомление на телефон, если в «Академиксе» появятся замены, отменятся пары или сменится аудитория.
+            </p>
+            <div class="push-actions">
+              <button type="button" class="push-btn push-btn-primary" id="btn-push-toggle">
+                Включить уведомления
+              </button>
+              <button type="button" class="push-btn hidden" id="btn-push-test">
+                Проверить
+              </button>
+            </div>
+          </div>
+
           <div class="glass-card settings-card">
             <div class="sc-head">
               <span>Оформление</span>
@@ -292,6 +311,6 @@
       <div class="toast hidden" id="toast"></div>
     </div>
 
-    <script src="/app/app.js?v=9"></script>
+    <script src="/app/app.js?v=10"></script>
   </body>
 </html>

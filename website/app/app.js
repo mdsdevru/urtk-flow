@@ -600,9 +600,11 @@ function getFilteredGroups() {
 function selectGroupByName(name) {
   if (!name) return;
   state.settings.selectedGroup = name;
+  state.scheduleChanges = [];
   saveSettings();
   showToast(`Группа ${name} выбрана`);
   syncData();
+  syncPushGroupIfSubscribed();
 }
 
 function renderSchedule() {
@@ -834,10 +836,90 @@ function renderGroups() {
   });
 }
 
+function diffSchedules(prevDays, nextDays) {
+  if (!Array.isArray(prevDays) || !prevDays.length || !Array.isArray(nextDays) || !nextDays.length) {
+    return [];
+  }
+  const normDay = (d) =>
+    (d.lessons || [])
+      .map((l) => ({
+        pair: Number(l.pairNumber) || 0,
+        subject: String(l.subject || "").trim(),
+        teacher: String(l.teacher || "").trim(),
+        room: String(l.room || "").trim(),
+        time: String(l.startTime || "").trim(),
+      }))
+      .sort((a, b) => a.pair - b.pair || a.subject.localeCompare(b.subject));
+
+  const prevMap = new Map(prevDays.map((d) => [d.date, normDay(d)]));
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const changes = [];
+
+  for (const nd of nextDays) {
+    const dt = parseDateRu(nd.date);
+    if (dt && dt.getTime() < todayStart.getTime()) continue;
+    const prevLessons = prevMap.get(nd.date);
+    const nextLessons = normDay(nd);
+    const shortDate = String(nd.date || "").slice(0, 5);
+    if (!prevLessons) {
+      if (nextLessons.length) {
+        changes.push(`${shortDate}: появилось расписание (${nextLessons.length} пар)`);
+      }
+      continue;
+    }
+    if (JSON.stringify(prevLessons) !== JSON.stringify(nextLessons)) {
+      if (prevLessons.length !== nextLessons.length) {
+        const delta = nextLessons.length - prevLessons.length;
+        changes.push(`${shortDate}: изменились пары (${delta > 0 ? "+" + delta : delta})`);
+      } else {
+        let detail = null;
+        for (let i = 0; i < nextLessons.length; i++) {
+          const pl = prevLessons[i];
+          const nl = nextLessons[i];
+          if (!pl) continue;
+          if (pl.room !== nl.room && pl.subject === nl.subject) {
+            detail = `${shortDate}: ${nl.pair} пара — ауд. ${pl.room || "—"} → ${nl.room || "—"}`;
+            break;
+          }
+          if (pl.subject !== nl.subject || pl.teacher !== nl.teacher) {
+            detail = `${shortDate}: замена на ${nl.pair} паре (${nl.subject})`;
+            break;
+          }
+        }
+        changes.push(detail || `${shortDate}: обновились пары/аудитории`);
+      }
+    }
+  }
+  return changes;
+}
+
+function renderScheduleDiff() {
+  const slot = document.getElementById("sched-diff-slot");
+  if (!slot) return;
+  const changes = state.scheduleChanges || [];
+  if (!changes.length) {
+    slot.innerHTML = "";
+    return;
+  }
+  slot.innerHTML = `<div class="glass-card diff-banner">
+    <div>
+      <div class="diff-title">Расписание изменилось</div>
+      <div class="diff-items">${changes.map((c) => escapeHtml(c)).join("<br/>")}</div>
+    </div>
+    <button type="button" class="diff-close" id="btn-diff-close" aria-label="Скрыть">×</button>
+  </div>`;
+  document.getElementById("btn-diff-close")?.addEventListener("click", () => {
+    state.scheduleChanges = [];
+    renderScheduleDiff();
+  });
+}
+
 function renderAll() {
   renderHeader();
   state.bellStatus = computeBellStatus(new Date());
   updateBellBar();
+  renderScheduleDiff();
   renderDriveSlots();
   renderConsultations();
   renderSchedule();
@@ -850,6 +932,8 @@ async function syncData() {
   const errBox = document.getElementById("error-box");
   if (errBox) errBox.classList.add("hidden");
 
+  const prevData = state.data;
+
   try {
     const q = state.settings.selectedGroup
       ? `?group=${encodeURIComponent(state.settings.selectedGroup)}`
@@ -858,6 +942,19 @@ async function syncData() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const payload = await resp.json();
     if (!payload.ok) throw new Error(payload.error || "Ошибка API");
+
+    if (
+      prevData &&
+      prevData.selectedGroup &&
+      payload.selectedGroup &&
+      prevData.selectedGroup.toLowerCase() === payload.selectedGroup.toLowerCase()
+    ) {
+      const changes = diffSchedules(prevData.schedule, payload.schedule);
+      if (changes.length) {
+        state.scheduleChanges = changes;
+        showToast("Расписание обновилось!");
+      }
+    }
 
     state.data = payload;
     saveCache(payload);
@@ -951,12 +1048,233 @@ document.getElementById("group-search")?.addEventListener("input", (e) => {
   renderGroups();
 });
 
-// Register Service Worker for offline PWA support
+// --- Web Push Notifications (iOS 16.4+ Standalone PWA & Android) ---
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+function isIosDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isStandaloneMode() {
+  return window.navigator.standalone === true ||
+    window.matchMedia("(display-mode: standalone)").matches;
+}
+
+async function getPushRegistration() {
+  if (!("serviceWorker" in navigator)) return null;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration("/app/");
+    return reg || (await navigator.serviceWorker.ready);
+  } catch {
+    return null;
+  }
+}
+
+async function refreshPushUi() {
+  const pill = document.getElementById("push-status-pill");
+  const note = document.getElementById("push-note");
+  const toggleBtn = document.getElementById("btn-push-toggle");
+  const testBtn = document.getElementById("btn-push-test");
+  if (!pill || !toggleBtn) return;
+
+  pill.classList.remove("is-on", "is-warn");
+
+  if (isIosDevice() && !isStandaloneMode()) {
+    pill.textContent = "Нужна установка";
+    pill.classList.add("is-warn");
+    if (note) {
+      note.textContent =
+        "На iPhone пуш-уведомления работают только в приложении с экрана «Домой»: нажмите «Поделиться» → «На экран „Домой“».";
+    }
+    toggleBtn.textContent = "Установите на экран «Домой»";
+    toggleBtn.disabled = true;
+    testBtn?.classList.add("hidden");
+    return;
+  }
+
+  if (!("Notification" in window) || !("PushManager" in window) || !("serviceWorker" in navigator)) {
+    pill.textContent = "Недоступно";
+    toggleBtn.textContent = "Браузер не поддерживает Push";
+    toggleBtn.disabled = true;
+    testBtn?.classList.add("hidden");
+    return;
+  }
+
+  if (Notification.permission === "denied") {
+    pill.textContent = "Запрещены";
+    pill.classList.add("is-warn");
+    if (note) {
+      note.textContent =
+        "Уведомления отключены в системных настройках телефона. Разрешите их для URTK Flow и перезапустите приложение.";
+    }
+    toggleBtn.textContent = "Доступ запрещён";
+    toggleBtn.disabled = true;
+    testBtn?.classList.add("hidden");
+    return;
+  }
+
+  const reg = await getPushRegistration();
+  const sub = reg ? await reg.pushManager.getSubscription().catch(() => null) : null;
+  toggleBtn.disabled = false;
+
+  if (sub) {
+    pill.textContent = "Включены";
+    pill.classList.add("is-on");
+    if (note) {
+      note.textContent = state.settings.selectedGroup
+        ? `Отслеживается расписание группы ${state.settings.selectedGroup} (проверка каждые 15 мин).`
+        : "Выберите учебную группу выше, чтобы получать уведомления о заменах.";
+    }
+    toggleBtn.textContent = "Отключить уведомления";
+    toggleBtn.classList.remove("push-btn-primary");
+    testBtn?.classList.remove("hidden");
+  } else {
+    pill.textContent = "Выключены";
+    if (note) {
+      note.textContent =
+        "Присылать пуш-уведомление на телефон, если в «Академиксе» появятся замены, отменятся пары или сменится аудитория.";
+    }
+    toggleBtn.textContent = "Включить уведомления";
+    toggleBtn.classList.add("push-btn-primary");
+    testBtn?.classList.add("hidden");
+  }
+}
+
+async function syncPushGroupIfSubscribed() {
+  if (!state.settings.selectedGroup || !("PushManager" in window)) return;
+  try {
+    const reg = await getPushRegistration();
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    if (!sub) return;
+    await fetch("/app/push.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "subscribe",
+        group: state.settings.selectedGroup,
+        subscription: sub.toJSON(),
+      }),
+    });
+    refreshPushUi();
+  } catch {}
+}
+
+async function togglePushSubscription() {
+  const toggleBtn = document.getElementById("btn-push-toggle");
+  if (!toggleBtn) return;
+  toggleBtn.disabled = true;
+
+  try {
+    const reg = await getPushRegistration();
+    if (!reg) throw new Error("Service Worker ещё не готов");
+    const existing = await reg.pushManager.getSubscription();
+
+    if (existing) {
+      await fetch("/app/push.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unsubscribe", endpoint: existing.endpoint }),
+      }).catch(() => {});
+      await existing.unsubscribe();
+      showToast("Уведомления отключены");
+      return;
+    }
+
+    if (!state.settings.selectedGroup) {
+      showToast("Сначала выберите учебную группу выше");
+      return;
+    }
+
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      showToast("Нужно разрешить уведомления");
+      return;
+    }
+
+    const vapidResp = await fetch("/app/push.php?action=vapid", { cache: "no-store" });
+    const vapidJson = await vapidResp.json();
+    if (!vapidResp.ok || !vapidJson.ok || !vapidJson.publicKey) {
+      throw new Error("Не удалось получить ключ сервера");
+    }
+
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidJson.publicKey),
+    });
+
+    const saveResp = await fetch("/app/push.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "subscribe",
+        group: state.settings.selectedGroup,
+        subscription: sub.toJSON(),
+      }),
+    });
+    const saveJson = await saveResp.json();
+    if (!saveResp.ok || !saveJson.ok) {
+      await sub.unsubscribe().catch(() => {});
+      throw new Error(saveJson.error || "Ошибка сохранения подписки");
+    }
+
+    showToast(`Уведомления для ${state.settings.selectedGroup} включены`);
+  } catch (e) {
+    showToast(e.message || "Не удалось настроить уведомления");
+  } finally {
+    await refreshPushUi();
+  }
+}
+
+async function sendTestPush() {
+  const testBtn = document.getElementById("btn-push-test");
+  if (!testBtn) return;
+  testBtn.disabled = true;
+  try {
+    const reg = await getPushRegistration();
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    if (!sub) {
+      showToast("Сначала включите уведомления");
+      return;
+    }
+    const resp = await fetch("/app/push.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "test", subscription: sub.toJSON() }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      throw new Error(data.error || "Ошибка отправки");
+    }
+    showToast("Тестовое уведомление отправлено");
+  } catch (e) {
+    showToast(e.message || "Не удалось отправить тест");
+  } finally {
+    testBtn.disabled = false;
+  }
+}
+
+document.getElementById("btn-push-toggle")?.addEventListener("click", togglePushSubscription);
+document.getElementById("btn-push-test")?.addEventListener("click", sendTestPush);
+
+// Register Service Worker for offline PWA support & Web Push
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("/app/sw.js", { scope: "/app/", updateViaCache: "none" })
-      .then((reg) => reg.update().catch(() => {}))
+      .then((reg) => {
+        reg.update().catch(() => {});
+        refreshPushUi();
+      })
       .catch(() => {});
   });
 }
@@ -964,6 +1282,7 @@ if ("serviceWorker" in navigator) {
 // Boot
 applyTheme();
 initInstallBanner();
+refreshPushUi();
 if (state.settings.selectedGroup || state.settings.pinnedTeachers.length) {
   state.consultFilter = "mine";
   document.querySelectorAll("[data-cfilter]").forEach((b) => {
