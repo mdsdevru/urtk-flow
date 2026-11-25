@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /app/api.php
+Disallow: /updates/
+
+Host: https://flow.mdsdev.ru
+Sitemap: https://flow.mdsdev.ru/sitemap.xml
