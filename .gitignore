@@ -1,0 +1,43 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies & build outputs
+node_modules
+dist
+dist-ssr
+src-tauri/target
+*.local
+*.exe
+
+# Sensitive secrets, keys, local databases & external sessions
+*.key
+*.pem
+*.env
+*.env.*
+*.db
+*.sqlite
+*.session
+*.session-journal
+.tg_config.json
+.tg_reply.txt
+tg_bridge.py
+tg_media/
+main-site/
+website/app/.cache/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>URTK Flow — Расписание, консультации и виджет для Windows</title>
+    <meta
+      name="description"
+      content="Нативное приложение для Windows с расписанием Академикса, актуальным графиком консультаций преподавателей УРТК им. А.С. Попова и стеклянным виджетом рабочего стола."
+    />
+    <meta property="og:title" content="URTK Flow — Учебный поток без лишних вкладок" />
+    <meta
+      property="og:description"
+      content="Расписание любой группы УРТК, умный фильтр консультаций, веб-приложение для iPhone/Android и виджет рабочего стола, который не сворачивается по Win+D."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/png" href="./assets/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!-- Sticky minimal glass navbar -->
+    <header class="nav">
+      <div class="container nav-inner">
+        <a href="#top" class="brand" aria-label="URTK Flow">
+          <img src="./assets/icon.png" alt="URTK Flow" class="brand-icon" />
+          <span class="brand-name">URTK Flow</span>
+          <span class="brand-tag mono" data-release-version>1.3.1</span>
+        </a>
+
+        <nav class="nav-links" aria-label="Навигация">
+          <a href="#contrast">Отличия</a>
+          <a href="#features">Возможности</a>
+          <a href="#widget">Виджет</a>
+          <a href="#download">Установка</a>
+          <a href="/app/">iPhone / Web</a>
+        </nav>
+
+        <a
+          href="./downloads/URTK-Flow-Setup-1.3.1.exe"
+          download="URTK-Flow-Setup-1.3.1.exe"
+          data-release-download
+          class="btn btn-primary btn-sm"
+        >
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>Скачать</span>
+        </a>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- HERO -->
+      <section class="hero">
+        <div class="container">
+          <div class="hero-copy">
+            <div class="eyebrow">
+              <span class="status-dot"></span>
+              <span>УРТК им. А.С. Попова · Windows 10 / 11 (x64)</span>
+            </div>
+
+            <h1 class="hero-title">
+              Учебный поток<br />
+              без лишних вкладок.
+            </h1>
+
+            <p class="hero-lead">
+              Расписание из «Академикса», актуальные консультации ваших преподавателей, прямые папки
+              ДО и нативный виджет рабочего стола — в одном защищённом приложении на Rust.
+            </p>
+
+            <div class="hero-actions">
+              <a
+                href="./downloads/URTK-Flow-Setup-1.3.1.exe"
+                download="URTK-Flow-Setup-1.3.1.exe"
+                data-release-download
+                class="btn btn-primary btn-lg"
+                id="hero-download-btn"
+              >
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span>Скачать для Windows</span>
+                <span class="btn-meta mono" data-release-size>3,55 МБ</span>
+              </a>
+              <a href="/app/" class="btn btn-ghost btn-lg">
+                <span>Веб-приложение (iPhone / Android)</span>
+              </a>
+            </div>
+
+            <div class="hero-specs mono">
+              <span>Rust + Tauri v2</span>
+              <span class="sep">·</span>
+              <span>Подпись обновлений Ed25519</span>
+              <span class="sep">·</span>
+              <span>iPhone / Android PWA</span>
+              <span class="sep">·</span>
+              <span>Без аккаунтов и рекламы</span>
+            </div>
+          </div>
+
+          <!-- Interactive Live App Showcase -->
+          <div class="stage-wrap reveal is-visible">
+            <div class="stage-bar">
+              <div class="stage-bar-left">
+                <span class="stage-hint">Интерактивный предпросмотр интерфейса</span>
+              </div>
+              <div class="stage-bar-right">
+                <button type="button" class="stage-chip active" data-stage-theme="dark">
+                  Тёмное стекло
+                </button>
+                <button type="button" class="stage-chip" data-stage-theme="light">
+                  Светлое стекло
+                </button>
+              </div>
+            </div>
+
+            <div class="desktop-stage" id="hero-stage" data-theme="dark">
+              <!-- Simulated URTK Flow main window -->
+              <div class="app-mock">
+                <div class="app-mock-top">
+                  <div class="app-mock-brand">
+                    <img src="./assets/icon.png" alt="" class="app-mock-logo" />
+                    <span class="app-mock-title">URTK Flow</span>
+                    <span class="app-mock-group mono">ИсР-101</span>
+                  </div>
+                  <div class="app-mock-controls">
+                    <span class="win-dot"></span>
+                    <span class="win-dot"></span>
+                    <span class="win-dot"></span>
+                  </div>
+                </div>
+
+                <div class="app-mock-body">
+                  <aside class="app-mock-side">
+                    <button type="button" class="mock-nav active" data-mock-tab="consultations">
+                      <span>Консультации</span>
+                      <span class="mock-badge mono">3</span>
+                    </button>
+                    <button type="button" class="mock-nav" data-mock-tab="schedule">
+                      <span>Расписание</span>
+                    </button>
+                    <button type="button" class="mock-nav" data-mock-tab="bells">
+                      <span>Звонки</span>
+                    </button>
+                    <div class="mock-side-footer">
+                      <span class="mock-side-label">Автоподбор</span>
+                      <span class="mock-side-val">Все 78 групп УРТК</span>
+                    </div>
+                  </aside>
+
+                  <div class="app-mock-content">
+                    <!-- Tab: Consultations -->
+                    <div class="mock-panel active" data-mock-panel="consultations">
+                      <div class="mock-head">
+                        <div>
+                          <div class="mock-h2">Консультации</div>
+                          <div class="mock-sub mono">23.11 — 28.11 · только предстоящие</div>
+                        </div>
+                        <span class="mock-seg">Мои преподаватели</span>
+                      </div>
+                      <div class="mock-cards">
+                        <div class="mock-card">
+                          <div class="mock-card-top">
+                            <span class="mock-teacher">Тимонова Светлана Сергеевна</span>
+                            <span class="mock-tag">Моя группа</span>
+                          </div>
+                          <div class="mock-slot">
+                            <span class="mono">Вт 24.11 · 13:35–15:10</span>
+                            <span class="mock-room mono">215</span>
+                          </div>
+                        </div>
+
+                        <div class="mock-card">
+                          <div class="mock-card-top">
+                            <span class="mock-teacher">Биц Наталья Александровна</span>
+                            <span class="mock-tag">Моя группа</span>
+                          </div>
+                          <div class="mock-slot">
+                            <span class="mono">Ср 25.11 · 08:00–15:00</span>
+                            <span class="mock-room mono">457</span>
+                          </div>
+                        </div>
+
+                        <div class="mock-card">
+                          <div class="mock-card-top">
+                            <span class="mock-teacher">Боровиков Денис Леонидович</span>
+                            <span class="mock-tag pin">Закреплён</span>
+                          </div>
+                          <div class="mock-slot">
+                            <span class="mono">Чт 26.11 · 15:20–16:55</span>
+                            <span class="mock-room online">Онлайн</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Tab: Schedule -->
+                    <div class="mock-panel" data-mock-panel="schedule">
+                      <div class="mock-head">
+                        <div>
+                          <div class="mock-h2">Понедельник · 23.11</div>
+                          <div class="mock-sub">Синхронизировано с Академиксом</div>
+                        </div>
+                        <span class="mock-seg mono">3 пары</span>
+                      </div>
+                      <div class="mock-lessons">
+                        <div class="mock-lesson">
+                          <span class="mock-num mono">1</span>
+                          <div class="mock-lesson-info">
+                            <div class="mock-subj">Классный час «Разговоры о важном»</div>
+                            <div class="mock-meta mono">08:00–09:35 · Тимонова С.С.</div>
+                          </div>
+                          <span class="mock-room mono">215</span>
+                        </div>
+                        <div class="mock-lesson">
+                          <span class="mock-num mono">2</span>
+                          <div class="mock-lesson-info">
+                            <div class="mock-subj">Основы алгоритмизации и программирования</div>
+                            <div class="mock-meta mono">09:45–11:20 · Боровиков Д.Л.</div>
+                          </div>
+                          <span class="mock-room mono">462</span>
+                        </div>
+                        <div class="mock-lesson">
+                          <span class="mock-num mono">3</span>
+                          <div class="mock-lesson-info">
+                            <div class="mock-subj">Математика</div>
+                            <div class="mock-meta mono">11:50–13:25 · Биц Н.А.</div>
+                          </div>
+                          <span class="mock-room mono">457</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Tab: Bells -->
+                    <div class="mock-panel" data-mock-panel="bells">
+                      <div class="mock-head">
+                        <div>
+                          <div class="mock-h2">Расписание звонков</div>
+                          <div class="mock-sub">Актуально с 1 сентября · Пн и Вт–Сб</div>
+                        </div>
+                      </div>
+                      <div class="mock-bells mono">
+                        <div class="mock-bell-row">
+                          <span>1 пара</span>
+                          <span>08:00–08:45 · 08:50–09:35</span>
+                        </div>
+                        <div class="mock-bell-row">
+                          <span>2 пара</span>
+                          <span>09:45–10:30 · 10:35–11:20</span>
+                        </div>
+                        <div class="mock-bell-row">
+                          <span>3 пара</span>
+                          <span>11:40–12:25 · 12:30–13:15</span>
+                        </div>
+                        <div class="mock-bell-row">
+                          <span>4 пара</span>
+                          <span>13:25–14:10 · 14:15–15:00</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Floating Desktop Widget Preview on Stage -->
+              <div class="hero-widget-card" aria-label="Предпросмотр виджета рабочего стола">
+                <div class="hw-head">
+                  <span class="hw-group">ИсР-101</span>
+                  <span class="hw-time mono">08:42</span>
+                </div>
+                <div class="hw-pill">
+                  <span>Звонок</span>
+                  <span class="hw-green mono">1 пара · ещё 53 мин</span>
+                </div>
+                <div class="hw-block">
+                  <div class="hw-label">Ближайшая пара</div>
+                  <div class="hw-row">
+                    <span>2. Алгоритмизация</span>
+                    <span class="mono hw-muted">462</span>
+                  </div>
+                </div>
+                <div class="hw-block">
+                  <div class="hw-label">Консультации</div>
+                  <div class="hw-row">
+                    <span>Тимонова С.С.</span>
+                    <span class="mono hw-accent">Вт · 215</span>
+                  </div>
+                  <div class="hw-row">
+                    <span>Биц Н.А.</span>
+                    <span class="mono hw-accent">Ср · 457</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CONTRAST: BEFORE vs AFTER -->
+      <section class="section" id="contrast">
+        <div class="container">
+          <div class="section-head reveal">
+            <span class="kicker mono">01 / ПОВСЕДНЕВНАЯ РУТИНА</span>
+            <h2 class="section-title">Вместо четырёх вкладок — один взгляд.</h2>
+          </div>
+
+          <div class="contrast-grid reveal">
+            <div class="contrast-col muted-col">
+              <div class="contrast-label">Вручную в браузере</div>
+              <ol class="contrast-list">
+                <li>Открыть «Академикс», снова выбрать отделение и учебную группу.</li>
+                <li>Найти ссылку на Google Таблицу консультаций на сайте колледжа.</li>
+                <li>Переключиться на нужный лист недели и вручную искать фамилии своих преподавателей среди сотни строк.</li>
+                <li>Сверять столбцы с датами в самом верху таблицы и отслеживать изменения самостоятельно.</li>
+              </ol>
+            </div>
+
+            <div class="contrast-col active-col">
+              <div class="contrast-label accent">В URTK Flow</div>
+              <ul class="contrast-list check-list">
+                <li>Группа выбирается один раз — список ваших преподавателей подтягивается автоматически.</li>
+                <li>Парсер сам открывает актуальный лист недели и скрывает уже прошедшие даты и часы.</li>
+                <li>Утренний пуш в Windows предупреждает, если у нужного преподавателя появилась консультация.</li>
+                <li>Расписание и консультации всегда видны прямо на обоях рабочего стола, даже без интернета.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FEATURES: STRICT 3x2 ARCHITECTURAL GRID -->
+      <section class="section" id="features">
+        <div class="container">
+          <div class="section-head reveal">
+            <span class="kicker mono">02 / ВОЗМОЖНОСТИ</span>
+            <h2 class="section-title">Спроектировано под ритм колледжа.</h2>
+            <p class="section-desc">
+              Никаких лишних экранов. Только те данные, которые действительно нужны каждый день.
+            </p>
+          </div>
+
+          <div class="feature-grid reveal">
+            <article class="feature-cell">
+              <div class="feature-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke-linecap="round" />
+                </svg>
+              </div>
+              <h3>Умный парсер консультаций</h3>
+              <p>
+                Автоматически находит актуальный недельный лист в Google Таблице, отсекает прошедшие
+                даты и сопоставляет сокращённые ФИО из «Академикса» с полными именами преподавателей.
+              </p>
+            </article>
+
+            <article class="feature-cell">
+              <div class="feature-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <rect x="3" y="4" width="18" height="17" rx="3" />
+                  <path d="M16 2v4M8 2v4M3 10h18" stroke-linecap="round" />
+                </svg>
+              </div>
+              <h3>Все 78 групп УРТК</h3>
+              <p>
+                Расписание любой группы напрямую из JSON API «Академикса», автопереход на новую
+                неделю в выходные, встроенные звонки и быстрый доступ к папкам ДО и Moodle.
+              </p>
+            </article>
+
+            <article class="feature-cell">
+              <div class="feature-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <rect x="3" y="3" width="8" height="8" rx="2" />
+                  <rect x="13" y="3" width="8" height="18" rx="2" />
+                  <rect x="3" y="13" width="8" height="8" rx="2" />
+                </svg>
+              </div>
+              <h3>Виджет рабочего стола</h3>
+              <p>
+                Модульная стеклянная карточка на обоях: прибивается к уровню рабочего стола через
+                Win32 API, запоминает позицию и не сворачивается при нажатии Win+D.
+              </p>
+            </article>
+
+            <article class="feature-cell">
+              <div class="feature-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M13.73 21a2 2 0 01-3.46 0" stroke-linecap="round" />
+                </svg>
+              </div>
+              <h3>Настраиваемые уведомления</h3>
+              <p>
+                Нативные пуши Windows при появлении новой консультации или изменении расписания,
+                утренняя сводка в выбранное время — любой триггер включается в один клик.
+              </p>
+            </article>
+
+            <article class="feature-cell">
+              <div class="feature-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </div>
+              <h3>Ядро на Rust и офлайн-кэш</h3>
+              <p>
+                Никакого тяжёлого Electron: нативный движок на Rust + Tauri v2, локальная база
+                SQLite и мгновенный старт. Приложение работает даже без подключения к сети.
+              </p>
+            </article>
+
+            <article class="feature-cell">
+              <div class="feature-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 3a9 9 0 000 18V3z" fill="currentColor" opacity="0.2" />
+                </svg>
+              </div>
+              <h3>Оптический Liquid Glass</h3>
+              <p>
+                Нативное размытие Windows 11 Acrylic, ровные системные скругления без рамок и
+                переключение между тёмным и светлым стеклом прямо в заголовке окна.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- INTERACTIVE WIDGET DEMO -->
+      <section class="section" id="widget">
+        <div class="container">
+          <div class="widget-split reveal">
+            <div class="widget-controls-panel">
+              <span class="kicker mono">03 / ВИДЖЕТ РАБОЧЕГО СТОЛА</span>
+              <h2 class="section-title">Намертво на обоях. Как в Windows 7.</h2>
+              <p class="section-desc">
+                Соберите только нужные блоки и настройте плотность стекла. Попробуйте нажать
+                кнопку «Win + D» ниже — обычные окна свернутся, а виджет останется на месте.
+              </p>
+
+              <div class="control-stack">
+                <label class="ctrl-row">
+                  <span>Таймер до звонка</span>
+                  <input type="checkbox" id="w-bell" checked class="toggle-input" />
+                </label>
+                <label class="ctrl-row">
+                  <span>Ближайший учебный день</span>
+                  <input type="checkbox" id="w-day" checked class="toggle-input" />
+                </label>
+                <label class="ctrl-row">
+                  <span>Консультации моих преподавателей</span>
+                  <input type="checkbox" id="w-cons" checked class="toggle-input" />
+                </label>
+                <div class="ctrl-slider-row">
+                  <div class="ctrl-slider-head">
+                    <span>Плотность стекла</span>
+                    <span class="mono" id="w-opacity-val">72%</span>
+                  </div>
+                  <input
+                    type="range"
+                    id="w-opacity"
+                    min="35"
+                    max="92"
+                    value="72"
+                    class="range-input"
+                  />
+                </div>
+              </div>
+
+              <button type="button" class="btn btn-ghost win-d-btn" id="simulate-wind">
+                <kbd class="kbd">Win</kbd>
+                <span>+</span>
+                <kbd class="kbd">D</kbd>
+                <span class="wind-label" id="wind-label">Свернуть остальные окна</span>
+              </button>
+            </div>
+
+            <div class="widget-sandbox" id="widget-sandbox">
+              <!-- Dummy background window that minimizes on Win+D -->
+              <div class="dummy-browser" id="dummy-browser">
+                <div class="dummy-top">
+                  <span class="dummy-dot"></span>
+                  <span class="dummy-dot"></span>
+                  <span class="dummy-dot"></span>
+                  <span class="dummy-url mono">browser — другие рабочие окна</span>
+                </div>
+                <div class="dummy-lines">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+
+              <!-- Live interactive widget -->
+              <div class="sandbox-widget" id="sandbox-widget">
+                <div class="sw-head">
+                  <span class="sw-title">ИсР-101 · Пн, 23 ноя</span>
+                  <span class="sw-clock mono">09:14</span>
+                </div>
+
+                <div class="sw-block sw-bell" id="sw-bell-block">
+                  <span>Звонок</span>
+                  <span class="sw-green mono">1 пара · ещё 21 мин</span>
+                </div>
+
+                <div class="sw-block" id="sw-day-block">
+                  <div class="sw-label">Ближайший день</div>
+                  <div class="sw-line">
+                    <span>1. Разговоры о важном</span>
+                    <span class="mono sw-dim">215</span>
+                  </div>
+                  <div class="sw-line">
+                    <span>2. Алгоритмизация</span>
+                    <span class="mono sw-dim">462</span>
+                  </div>
+                  <div class="sw-line">
+                    <span>3. Математика</span>
+                    <span class="mono sw-dim">457</span>
+                  </div>
+                </div>
+
+                <div class="sw-block" id="sw-cons-block">
+                  <div class="sw-label">Консультации</div>
+                  <div class="sw-line">
+                    <span>Тимонова С.С.</span>
+                    <span class="mono sw-blue">Вт 24.11 · 215</span>
+                  </div>
+                  <div class="sw-line">
+                    <span>Биц Н.А.</span>
+                    <span class="mono sw-blue">Ср 25.11 · 457</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="sandbox-taskbar">
+                <span class="tb-pill"></span>
+                <span class="tb-hint mono" id="sandbox-status">Рабочий стол Windows</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DOWNLOAD & INSTALL -->
+      <section class="section" id="download">
+        <div class="container">
+          <div class="install-card reveal">
+            <div class="install-main">
+              <div class="install-identity">
+                <img src="./assets/icon.png" alt="URTK Flow" class="install-icon" />
+                <div>
+                  <h2 class="install-title">Установить URTK Flow</h2>
+                  <p class="install-sub mono">
+                    v<span data-release-version>1.3.1</span> · Windows 10 / 11 (64-bit) · Setup Wizard · <span data-release-size>3,55 МБ</span>
+                  </p>
+                </div>
+              </div>
+
+              <a
+                href="./downloads/URTK-Flow-Setup-1.3.1.exe"
+                download="URTK-Flow-Setup-1.3.1.exe"
+                data-release-download
+                class="btn btn-primary btn-lg"
+              >
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 19h16" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span>Скачать установщик</span>
+              </a>
+            </div>
+
+            <div class="install-steps">
+              <div class="step">
+                <span class="step-num mono">01</span>
+                <div class="step-title">Запустите мастер установки</div>
+                <p class="step-desc">
+                  Установщик сам проверит наличие WebView2 Runtime и при необходимости доустановит его автоматически.
+                </p>
+              </div>
+              <div class="step">
+                <span class="step-num mono">02</span>
+                <div class="step-title">Установка без прав администратора</div>
+                <p class="step-desc">
+                  Приложение ставится в профиль текущего пользователя без запросов UAC и создаёт ярлык на рабочем столе.
+                </p>
+              </div>
+              <div class="step">
+                <span class="step-num mono">03</span>
+                <div class="step-title">Выберите свою группу УРТК</div>
+                <p class="step-desc">
+                  Расписание, преподаватели и актуальный лист консультаций синхронизируются автоматически.
+                </p>
+              </div>
+            </div>
+
+            <div class="sha-verify-row mono">
+              <span class="sha-label">SHA-256 (Ed25519 verified):</span>
+              <code class="sha-code" id="release-sha256" data-release-sha256>71fa1397865d11afd78add61b05015d90979a0c2eac66628c67530dfee5d5aa1</code>
+              <button type="button" class="sha-copy-btn" id="copy-sha256">Скопировать</button>
+            </div>
+
+            <div class="install-footnote mono">
+              <span>Статическая сборка Rust (VC++ и SQLite внутри)</span>
+              <span class="sep">·</span>
+              <span>Подпись релизов Ed25519 V2</span>
+              <span class="sep">·</span>
+              <span>Чистое удаление через «Параметры Windows»</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-left">
+          <img src="./assets/icon.png" alt="" class="footer-icon" />
+          <span>URTK Flow · неофициальный студенческий клиент для УРТК им. А.С. Попова</span>
+        </div>
+        <div class="footer-links">
+          <a href="/app/">Версия для iPhone</a>
+          <a href="https://urtt.ru" target="_blank" rel="noopener noreferrer">urtt.ru</a>
+          <a href="https://akademiks.urtt.ru" target="_blank" rel="noopener noreferrer">Академикс</a>
+        </div>
+      </div>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

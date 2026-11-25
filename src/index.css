@@ -1,0 +1,324 @@
+@import "tailwindcss";
+
+:root {
+  --font-sf: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.22);
+  --accent-text: #64b5ff;
+  --amber: #ff9f0a;
+  --green: #30d158;
+  --red: #ff453a;
+}
+
+.theme-dark {
+  color-scheme: dark;
+  --text-primary: rgba(255, 255, 255, 0.94);
+  --text-secondary: rgba(235, 235, 245, 0.62);
+  --text-tertiary: rgba(235, 235, 245, 0.38);
+  --shell-bg: linear-gradient(
+    180deg,
+    rgba(28, 30, 38, 0.56) 0%,
+    rgba(18, 20, 26, 0.64) 100%
+  );
+  --sidebar-bg: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.095) 0%,
+    rgba(255, 255, 255, 0.035) 100%
+  );
+  --card-bg: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.11) 0%,
+    rgba(255, 255, 255, 0.045) 55%,
+    rgba(255, 255, 255, 0.075) 100%
+  );
+  --card-bg-hover: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.15) 0%,
+    rgba(255, 255, 255, 0.065) 55%,
+    rgba(255, 255, 255, 0.105) 100%
+  );
+  --pill-bg: rgba(255, 255, 255, 0.085);
+  --pill-bg-hover: rgba(255, 255, 255, 0.145);
+  --hover-bg: rgba(255, 255, 255, 0.095);
+  --row-bg: rgba(255, 255, 255, 0.055);
+  --input-bg: rgba(0, 0, 0, 0.24);
+  --border-subtle: rgba(255, 255, 255, 0.12);
+  --border-specular: rgba(255, 255, 255, 0.34);
+  --shadow-card: 0 8px 28px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -0.5px 0 rgba(255, 255, 255, 0.07);
+  --shadow-capsule: 0 4px 16px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.24);
+  --accent-text: #70b8ff;
+}
+
+.theme-light {
+  color-scheme: light;
+  --text-primary: rgba(18, 22, 31, 0.92);
+  --text-secondary: rgba(28, 34, 46, 0.62);
+  --text-tertiary: rgba(28, 34, 46, 0.42);
+  --shell-bg: linear-gradient(
+    180deg,
+    rgba(246, 248, 252, 0.64) 0%,
+    rgba(236, 240, 248, 0.72) 100%
+  );
+  --sidebar-bg: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.62) 0%,
+    rgba(255, 255, 255, 0.36) 100%
+  );
+  --card-bg: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(255, 255, 255, 0.44) 60%,
+    rgba(255, 255, 255, 0.62) 100%
+  );
+  --card-bg-hover: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.84) 0%,
+    rgba(255, 255, 255, 0.58) 60%,
+    rgba(255, 255, 255, 0.74) 100%
+  );
+  --pill-bg: rgba(255, 255, 255, 0.54);
+  --pill-bg-hover: rgba(255, 255, 255, 0.78);
+  --hover-bg: rgba(15, 23, 42, 0.065);
+  --row-bg: rgba(255, 255, 255, 0.48);
+  --input-bg: rgba(255, 255, 255, 0.6);
+  --border-subtle: rgba(15, 23, 42, 0.09);
+  --border-specular: rgba(255, 255, 255, 0.9);
+  --shadow-card: 0 8px 24px rgba(15, 23, 42, 0.065),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    inset 0 -0.5px 0 rgba(15, 23, 42, 0.05);
+  --shadow-capsule: 0 4px 14px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --accent: #007aff;
+  --accent-soft: rgba(0, 122, 255, 0.14);
+  --accent-text: #0066d6;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font-sf);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Flush native Windows 11 shell — NO inner border-radius conflict */
+.lg-shell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--shell-bg);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+/* Floating macOS 26 Tahoe translucent sidebar */
+.lg-sidebar {
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(32px) saturate(185%);
+  -webkit-backdrop-filter: blur(32px) saturate(185%);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  border-radius: 20px;
+}
+
+/* Optical Liquid Glass card */
+.lg-card {
+  position: relative;
+  background: var(--card-bg);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  border-radius: 20px;
+  transition: transform 0.22s cubic-bezier(0.25, 1, 0.5, 1),
+    background 0.2s ease,
+    box-shadow 0.22s ease;
+}
+
+.lg-card-interactive:hover {
+  background: var(--card-bg-hover);
+  transform: translateY(-1px);
+}
+
+.lg-hover:hover {
+  background: var(--hover-bg);
+}
+
+.lg-lesson-active {
+  border-color: rgba(48, 209, 88, 0.45);
+}
+
+.lg-lesson-next {
+  border-color: rgba(10, 132, 255, 0.4);
+}
+
+/* Liquid Glass floating capsule / button */
+.lg-capsule {
+  background: var(--pill-bg);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-capsule);
+  transition: background 0.18s ease, transform 0.16s ease, box-shadow 0.18s ease;
+}
+
+.lg-capsule:hover {
+  background: var(--pill-bg-hover);
+}
+
+.lg-capsule:active {
+  transform: scale(0.975);
+}
+
+.lg-accent-pill {
+  background: linear-gradient(180deg, rgba(10, 132, 255, 0.95) 0%, rgba(0, 108, 224, 0.95) 100%);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 6px 18px rgba(10, 132, 255, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  transition: filter 0.16s ease, transform 0.16s ease;
+}
+
+.lg-accent-pill:hover {
+  filter: brightness(1.07);
+}
+
+.lg-accent-pill:active {
+  transform: scale(0.975);
+}
+
+/* Glass input */
+.lg-input {
+  background: var(--input-bg);
+  border: 1px solid var(--border-subtle);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.lg-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.lg-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Apple-style Switch */
+.lg-switch {
+  position: relative;
+  width: 40px;
+  height: 23px;
+  border-radius: 999px;
+  background: var(--pill-bg);
+  border: 1px solid var(--border-subtle);
+  transition: background 0.22s ease, border-color 0.22s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.lg-switch[data-checked="true"] {
+  background: var(--green);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.lg-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.28);
+  transition: transform 0.22s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.lg-switch[data-checked="true"] .lg-switch-thumb {
+  transform: translateX(17px);
+}
+
+/* Apple-style Slider */
+.lg-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pill-bg);
+  border: 1px solid var(--border-subtle);
+  outline: none;
+  cursor: pointer;
+}
+
+.lg-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.26);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.lg-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+/* Real Windows 11 Bloom wallpaper backdrop for Widget Preview */
+.lg-wallpaper-stage {
+  background: url("./assets/win11-wallpaper.jpg") center / cover no-repeat;
+}
+
+/* Subtle Apple scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(140, 150, 170, 0.28);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 150, 170, 0.48);
+}

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>URTK Flow</title>
+    <meta name="description" content="Расписание и актуальные консультации УРТК им. А.С. Попова" />
+    <meta name="theme-color" content="#080a0f" id="meta-theme-color" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="URTK Flow" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/app/icons/icon-180.png" />
+    <link rel="icon" type="image/png" href="/app/icons/icon-192.png" />
+    <link rel="manifest" href="/app/manifest.webmanifest" />
+    <link rel="stylesheet" href="/app/app.css?v=8" />
+  </head>
+  <body class="theme-dark">
+    <div class="ios-shell">
+      <!-- Translucent Sticky iOS Header -->
+      <header class="ios-header">
+        <div class="ios-header-inner">
+          <div class="hdr-left">
+            <img src="/app/icons/icon-180.png" alt="URTK Flow" class="hdr-icon" />
+            <div class="hdr-titles">
+              <div class="hdr-brand">URTK Flow</div>
+              <div class="hdr-sub" id="hdr-status">Загрузка...</div>
+            </div>
+          </div>
+
+          <div class="hdr-actions">
+            <button type="button" class="icon-pill" id="btn-group-pill" aria-label="Группа">
+              <span id="hdr-group-label">Группа</span>
+            </button>
+            <button type="button" class="icon-btn" id="btn-theme" aria-label="Сменить тему">
+              <svg id="ico-theme" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"></svg>
+            </button>
+            <button type="button" class="icon-btn" id="btn-sync" aria-label="Обновить">
+              <svg id="ico-sync" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+                <path d="M21 12a9 9 0 11-2.64-6.36L21 8m0-5v5h-5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Scrollable Viewport -->
+      <main class="ios-main" id="ios-main">
+        <!-- Smart iOS Safari "Add to Home Screen" banner (auto-hidden when installed) -->
+        <div class="install-banner hidden" id="ios-install-banner">
+          <div class="ib-row">
+            <img src="/app/icons/icon-180.png" alt="" class="ib-ico" />
+            <div class="ib-copy">
+              <div class="ib-title">Установите URTK Flow на iPhone</div>
+              <div class="ib-text">
+                Нажмите <strong>«Поделиться»</strong> внизу Safari → <strong>«На экран „Домой“»</strong>
+              </div>
+            </div>
+            <button type="button" class="ib-close" id="ib-close" aria-label="Скрыть">×</button>
+          </div>
+        </div>
+
+        <!-- Live Bell Status Card -->
+        <div class="glass-card bell-bar" id="bell-bar">
+          <div class="bell-left">
+            <span class="bell-dot"></span>
+            <span id="bell-date">—</span>
+          </div>
+          <span class="bell-right tabular" id="bell-status">—</span>
+        </div>
+
+        <!-- Error notice -->
+        <div class="error-card hidden" id="error-box"></div>
+
+        <!-- TAB 1: SCHEDULE (Primary) -->
+        <section class="tab-view active" data-view="schedule">
+          <div class="section-top">
+            <div>
+              <h1 class="page-title" id="sched-title">Расписание</h1>
+              <div class="page-sub" id="sched-sub">Академикс · akademiks.urtt.ru</div>
+            </div>
+          </div>
+
+          <div id="sched-drive-slot"></div>
+          <div class="day-strip" id="day-strip"></div>
+          <div class="card-stack" id="lesson-list"></div>
+
+          <div class="glass-card bells-box">
+            <div class="bells-head">
+              <span>Расписание звонков</span>
+              <div class="bells-seg">
+                <button type="button" class="bseg active" data-bellmode="regular">Вт–Сб</button>
+                <button type="button" class="bseg" data-bellmode="monday">Пн</button>
+              </div>
+            </div>
+            <div class="bells-rows tabular" id="bells-rows"></div>
+          </div>
+        </section>
+
+        <!-- TAB 2: CONSULTATIONS -->
+        <section class="tab-view" data-view="consultations">
+          <div class="section-top">
+            <div>
+              <h1 class="page-title">Консультации</h1>
+              <div class="page-sub tabular" id="consult-week">Актуальная неделя</div>
+            </div>
+          </div>
+
+          <div class="segmented" role="tablist">
+            <button type="button" class="seg-btn active" data-cfilter="mine">Мои</button>
+            <button type="button" class="seg-btn" data-cfilter="active">Есть слоты</button>
+            <button type="button" class="seg-btn" data-cfilter="all">Все</button>
+          </div>
+
+          <div class="search-wrap">
+            <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3.5-3.5" stroke-linecap="round" />
+            </svg>
+            <input
+              type="search"
+              id="teacher-search"
+              class="glass-input"
+              placeholder="Поиск по ФИО преподавателя"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="card-stack" id="consult-list"></div>
+        </section>
+
+        <!-- TAB 3: MATERIALS -->
+        <section class="tab-view" data-view="materials">
+          <div class="section-top">
+            <div>
+              <h1 class="page-title">Материалы ДО</h1>
+              <div class="page-sub">Ресурсы УРТК им. А.С. Попова</div>
+            </div>
+          </div>
+
+          <div id="materials-drive-slot"></div>
+
+          <div class="link-grid">
+            <a
+              class="glass-card link-tile"
+              href="https://docs.google.com/spreadsheets/d/1xKpaWPKBcv-emcRpAfYRCK767D8dLiYnJjnzvOgBies/edit?usp=sharing"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <div class="lt-title">Таблица консультаций</div>
+              <div class="lt-sub">Google Таблицы · оригинал</div>
+            </a>
+            <a
+              class="glass-card link-tile"
+              href="https://docs.google.com/spreadsheets/d/167kcyEYDRVdzexEauqZDi6uNG3ZFEGe2tvXXl5YERMg/edit?usp=sharing"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <div class="lt-title">Навигатор ДО</div>
+              <div class="lt-sub">Папки предметов 1–4 курсов</div>
+            </a>
+            <a
+              class="glass-card link-tile"
+              href="https://drive.google.com/drive/folders/1-wAAAAcRdG75cosGex_KIW2VDgml0nrp?usp=sharing"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <div class="lt-title">Google Диск ДО</div>
+              <div class="lt-sub">Общий архив заданий</div>
+            </a>
+            <a
+              class="glass-card link-tile"
+              href="http://moodle.urtk.su/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <div class="lt-title">Moodle УРТК</div>
+              <div class="lt-sub">Портал дистанционного обучения</div>
+            </a>
+            <a
+              class="glass-card link-tile"
+              href="https://akademiks.urtt.ru"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <div class="lt-title">Академикс</div>
+              <div class="lt-sub">Полное расписание групп</div>
+            </a>
+            <a
+              class="glass-card link-tile"
+              href="https://flow.mdsdev.ru/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <div class="lt-title">Версия для Windows</div>
+              <div class="lt-sub">Десктоп-приложение с виджетом</div>
+            </a>
+          </div>
+        </section>
+
+        <!-- TAB 4: SETTINGS & GROUP -->
+        <section class="tab-view" data-view="settings">
+          <div class="section-top">
+            <div>
+              <h1 class="page-title">Настройки</h1>
+              <div class="page-sub">Выбор учебной группы и оформление</div>
+            </div>
+          </div>
+
+          <div class="glass-card settings-card">
+            <div class="sc-head">
+              <span>Учебная группа УРТК</span>
+              <span class="badge-blue tabular" id="settings-cur-group">Не выбрана</span>
+            </div>
+            <input
+              type="search"
+              id="group-search"
+              class="glass-input compact"
+              placeholder="Найти группу (например, ИсР-101, Э-171)..."
+              autocomplete="off"
+            />
+            <div class="group-chips" id="group-chips"></div>
+          </div>
+
+          <div class="glass-card settings-card">
+            <div class="sc-head">
+              <span>Оформление</span>
+            </div>
+            <div class="segmented" id="theme-seg">
+              <button type="button" class="seg-btn active" data-settheme="dark">Тёмное стекло</button>
+              <button type="button" class="seg-btn" data-settheme="light">Светлое стекло</button>
+            </div>
+          </div>
+
+          <div class="glass-card settings-card">
+            <div class="sc-head">
+              <span>Установка на iPhone</span>
+            </div>
+            <p class="sc-note">
+              Откройте <strong>flow.mdsdev.ru/app</strong> в Safari, нажмите кнопку
+              <strong>«Поделиться»</strong> (квадрат со стрелкой вверх) и выберите
+              <strong>«На экран „Домой“»</strong>. Приложение будет открываться на весь экран и
+              хранить расписание в офлайн-кэше.
+            </p>
+          </div>
+        </section>
+      </main>
+
+      <!-- Floating iOS 26 Liquid Glass Bottom Tab Bar -->
+      <nav class="ios-tabbar-wrap" aria-label="Разделы">
+        <div class="ios-tabbar">
+          <button type="button" class="tab-item active" data-tab="schedule">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="4" width="18" height="17" rx="3" />
+              <path d="M16 2v4M8 2v4M3 10h18" stroke-linecap="round" />
+            </svg>
+            <span>Пары</span>
+          </button>
+
+          <button type="button" class="tab-item" data-tab="consultations">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span>Консульт.</span>
+          </button>
+
+          <button type="button" class="tab-item" data-tab="materials">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span>ДО</span>
+          </button>
+
+          <button type="button" class="tab-item" data-tab="settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span>Настройки</span>
+          </button>
+        </div>
+      </nav>
+
+      <div class="toast hidden" id="toast"></div>
+    </div>
+
+    <script src="/app/app.js?v=8"></script>
+  </body>
+</html>
